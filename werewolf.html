@@ -12,7 +12,7 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     
-    <!-- Babel for JSX -->
+    <!-- Babel -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
     <style>
@@ -20,42 +20,49 @@
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
         }
-        .animate-fade-in {
-            animation: fadeIn 0.5s ease-out forwards;
-        }
-        .animate-spin-slow {
-            animation: spin 3s linear infinite;
-        }
-        @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
+        .animate-fade-in { animation: fadeIn 0.5s ease-out forwards; }
+        .animate-spin-slow { animation: spin 3s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        
+        /* Error Container Styling */
+        #error-container { display: none; padding: 20px; background: #450a0a; color: #fecaca; margin: 20px; border-radius: 8px; border: 1px solid #991b1b; font-family: monospace; }
     </style>
 </head>
 <body class="bg-slate-950 text-slate-100">
+    <!-- Error Display Area -->
+    <div id="error-container"></div>
+    
+    <!-- React Root -->
     <div id="root"></div>
 
-    <script type="text/babel" data-type="module">
-        import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
-        import { 
-            getAuth, 
-            signInAnonymously, 
-            signInWithCustomToken,
-            onAuthStateChanged 
-        } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
-        import { 
-            getFirestore, 
-            collection, 
-            doc, 
-            setDoc, 
-            onSnapshot, 
-            updateDoc, 
-            arrayUnion,
-            getDoc,
-            deleteDoc 
-        } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
+    <!-- 1. Global Error Handler (catches crashes immediately) -->
+    <script>
+        window.onerror = function(message, source, lineno, colno, error) {
+            const el = document.getElementById('error-container');
+            el.style.display = 'block';
+            el.innerHTML = `<strong>System Error:</strong><br>${message}<br><small>${source}:${lineno}</small>`;
+        };
+    </script>
 
-        // --- ICONS (Inline SVGs) ---
+    <!-- 2. Firebase Import Module (Loads dependencies first) -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
+        import { getFirestore, collection, doc, setDoc, onSnapshot, updateDoc, arrayUnion, getDoc, deleteDoc } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
+
+        // Expose Firebase to the global window object for the React script to use
+        window._FIREBASE_LIBS = {
+            initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged,
+            getFirestore, collection, doc, setDoc, onSnapshot, updateDoc, arrayUnion, getDoc, deleteDoc
+        };
+        
+        // Signal that libs are ready
+        window._LIBS_LOADED = true;
+    </script>
+
+    <!-- 3. React Application Logic -->
+    <script type="text/babel">
+        // --- ICONS ---
         const Icons = {
             Moon: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>,
             Sun: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>,
@@ -68,16 +75,9 @@
             Loader: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
         };
 
-        // --- APP LOGIC ---
-
         const { useState, useEffect } = React;
 
-        const firebaseConfig = JSON.parse(__firebase_config);
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
+        // Constants
         const ROLES = {
           VILLAGER: { id: 'villager', name: 'Villager', team: 'villagers', icon: Icons.Users, desc: 'Find the wolves. Vote to eliminate them during the day.' },
           WEREWOLF: { id: 'werewolf', name: 'Werewolf', team: 'werewolves', icon: Icons.Moon, desc: 'Eat a villager each night. Don\'t get caught.' },
@@ -99,10 +99,7 @@
           GAME_OVER: 'GAME_OVER'
         };
 
-        const generateRoomCode = () => Math.random().toString(36).substring(2, 6).toUpperCase();
-        const shuffleArray = (array) => array.sort(() => Math.random() - 0.5);
-
-        function App() {
+        function App({ fb }) {
           const [user, setUser] = useState(null);
           const [mode, setMode] = useState('landing'); 
           const [roomCode, setRoomCode] = useState('');
@@ -111,23 +108,50 @@
           const [error, setError] = useState('');
           const [loading, setLoading] = useState(false);
 
-          useEffect(() => {
-            const initAuth = async () => {
-              if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                await signInWithCustomToken(auth, __initial_auth_token);
-              } else {
-                await signInAnonymously(auth);
-              }
-            };
-            initAuth();
-            const unsubscribe = onAuthStateChanged(auth, setUser);
-            return () => unsubscribe();
-          }, []);
+          // Get Env Config safely
+          const appId = typeof __app_id !== 'undefined' ? __app_id : 'werewolf-party-game';
+          const firebaseConfigRaw = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
+
+          // Init Firebase
+          const [services, setServices] = useState(null);
 
           useEffect(() => {
-            if (!user || !roomCode) return;
-            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', `rooms/${roomCode}`);
-            const unsubscribe = onSnapshot(roomRef, (snapshot) => {
+            if (!firebaseConfigRaw) {
+              setError("Configuration Error: Firebase config not found. (If running locally, this is expected).");
+              return;
+            }
+            
+            try {
+              const config = JSON.parse(firebaseConfigRaw);
+              const app = fb.initializeApp(config);
+              const auth = fb.getAuth(app);
+              const db = fb.getFirestore(app);
+              
+              setServices({ auth, db });
+
+              const initAuth = async () => {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                  await fb.signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                  await fb.signInAnonymously(auth);
+                }
+              };
+              initAuth();
+              const unsubscribe = fb.onAuthStateChanged(auth, (u) => setUser(u));
+              return () => unsubscribe();
+            } catch (err) {
+              console.error(err);
+              setError("Firebase Initialization Failed: " + err.message);
+            }
+          }, []);
+
+          // Room Sync
+          useEffect(() => {
+            if (!user || !roomCode || !services) return;
+            const { db } = services;
+            const roomRef = fb.doc(db, 'artifacts', appId, 'public', 'data', `rooms/${roomCode}`);
+            
+            const unsubscribe = fb.onSnapshot(roomRef, (snapshot) => {
               if (snapshot.exists()) {
                 setRoomData(snapshot.data());
               } else {
@@ -142,17 +166,21 @@
               setError("Connection lost. Reconnecting...");
             });
             return () => unsubscribe();
-          }, [user, roomCode, mode]);
+          }, [user, roomCode, mode, services]);
 
-          // --- HOST ACTIONS ---
+          const generateRoomCode = () => Math.random().toString(36).substring(2, 6).toUpperCase();
+          const shuffleArray = (array) => array.sort(() => Math.random() - 0.5);
+
+          // --- HOST LOGIC ---
 
           const createGame = async () => {
-            if (!user) return;
+            if (!user || !services) return;
             setLoading(true);
             const code = generateRoomCode();
-            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', `rooms/${code}`);
+            const { db } = services;
+            const roomRef = fb.doc(db, 'artifacts', appId, 'public', 'data', `rooms/${code}`);
             
-            await setDoc(roomRef, {
+            await fb.setDoc(roomRef, {
               hostId: user.uid,
               code,
               status: PHASES.LOBBY,
@@ -220,11 +248,11 @@
                 const result = resolveNight(players, actions);
                 const nightWinner = checkWinCondition(result.players);
                 if (nightWinner) {
-                  nextStatus = PHASES.GAME_OVER;
-                  updates = { ...result, winner: nightWinner };
+                   nextStatus = PHASES.GAME_OVER;
+                   updates = { ...result, winner: nightWinner };
                 } else {
-                  nextStatus = PHASES.DAY_REVEAL;
-                  updates = { ...result };
+                   nextStatus = PHASES.DAY_REVEAL;
+                   updates = { ...result };
                 }
                 break;
               case PHASES.DAY_REVEAL: nextStatus = PHASES.DAY_DISCUSSION; break;
@@ -262,8 +290,9 @@
           };
 
           const updateRoom = async (data) => {
-            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', `rooms/${roomCode}`);
-            await updateDoc(roomRef, data);
+            const { db } = services;
+            const roomRef = fb.doc(db, 'artifacts', appId, 'public', 'data', `rooms/${roomCode}`);
+            await fb.updateDoc(roomRef, data);
           };
 
           const resolveNight = (currentPlayers, actions) => {
@@ -289,7 +318,7 @@
             } else {
               log.push("The night was quiet. No one was attacked.");
             }
-            return { players, gameLog: arrayUnion(...log), actions: {} };
+            return { players, gameLog: fb.arrayUnion(...log), actions: {} };
           };
 
           const resolveDayVote = (currentPlayers, votes) => {
@@ -324,7 +353,7 @@
             } else {
               log.push("The vote was tied. No one was executed.");
             }
-            return { players, gameLog: arrayUnion(...log), votes: {} };
+            return { players, gameLog: fb.arrayUnion(...log), votes: {} };
           };
 
           const checkWinCondition = (players) => {
@@ -335,7 +364,7 @@
             return null;
           };
 
-          // --- PLAYER ACTIONS ---
+          // --- PLAYER LOGIC ---
 
           const joinGame = async () => {
             if (!user || !roomCode || !playerName) {
@@ -344,8 +373,9 @@
             }
             setLoading(true);
             const codeUpper = roomCode.toUpperCase();
-            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', `rooms/${codeUpper}`);
-            const snap = await getDoc(roomRef);
+            const { db } = services;
+            const roomRef = fb.doc(db, 'artifacts', appId, 'public', 'data', `rooms/${codeUpper}`);
+            const snap = await fb.getDoc(roomRef);
 
             if (!snap.exists()) {
               setError("Room not found.");
@@ -364,8 +394,8 @@
             } else {
                const existingPlayer = roomData.players.find(p => p.id === user.uid);
                if (!existingPlayer) {
-                  await updateDoc(roomRef, {
-                    players: arrayUnion({
+                  await fb.updateDoc(roomRef, {
+                    players: fb.arrayUnion({
                       id: user.uid,
                       name: playerName,
                       isAlive: true,
@@ -394,7 +424,20 @@
             }
           };
 
-          // --- RENDER ---
+          // --- RENDERING ---
+
+          if (error && mode === 'landing') {
+              // Show landing errors (like config missing) in the UI
+              return (
+                  <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center p-4">
+                      <div className="bg-red-900/20 border border-red-500 p-6 rounded-lg max-w-md text-center">
+                          <Icons.Skull className="w-12 h-12 text-red-500 mx-auto mb-4"/>
+                          <h2 className="text-xl font-bold mb-2">Setup Error</h2>
+                          <p className="text-red-200">{error}</p>
+                      </div>
+                  </div>
+              );
+          }
 
           if (loading && mode !== 'landing') {
             return (
@@ -404,6 +447,7 @@
             );
           }
 
+          // LANDING
           if (mode === 'landing') {
             return (
               <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center p-4 font-sans">
@@ -440,6 +484,7 @@
             );
           }
 
+          // HOST
           if (mode === 'host') {
             if (!roomData) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-white"><Icons.Loader className="animate-spin mr-2"/> Loading Room...</div>;
             const playerCount = roomData.players.length;
@@ -550,6 +595,7 @@
             );
           }
 
+          // PLAYER
           if (mode === 'player') {
             if (!roomData) return <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white"><Icons.Loader className="animate-spin mr-2"/> Connecting...</div>;
             const me = roomData.players.find(p => p.id === user.uid);
@@ -652,7 +698,14 @@
         }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+
+        // Bootstrap: Wait for libraries to load
+        const checkLibs = setInterval(() => {
+            if (window._LIBS_LOADED && window._FIREBASE_LIBS) {
+                clearInterval(checkLibs);
+                root.render(<App fb={window._FIREBASE_LIBS} />);
+            }
+        }, 100);
     </script>
 </body>
 </html>
