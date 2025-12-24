@@ -156,7 +156,10 @@
                 }
               };
               initAuth();
-              const unsubscribe = fb.onAuthStateChanged(auth, (u) => setUser(u));
+              const unsubscribe = fb.onAuthStateChanged(auth, (u) => {
+                  setUser(u);
+                  if (u) console.log("Logged in as", u.uid);
+              });
               return () => unsubscribe();
             } catch (err) {
               console.error(err);
@@ -197,29 +200,43 @@
           // --- HOST LOGIC ---
 
           const createGame = async () => {
-            if (!user || !services) return;
-            setLoading(true);
-            const code = generateRoomCode();
-            const { db } = services;
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'werewolf-party-game';
-            const roomRef = fb.doc(db, 'artifacts', appId, 'public', 'data', `rooms/${code}`);
-            
-            await fb.setDoc(roomRef, {
-              hostId: user.uid,
-              code,
-              status: PHASES.LOBBY,
-              players: [],
-              gameLog: [],
-              votes: {},
-              actions: {},
-              settings: { roles: ['villager', 'werewolf', 'doctor', 'seer'] },
-              currentRound: 0,
-              winner: null
-            });
+            if (!services) {
+                alert("Firebase services not ready. Check your configuration.");
+                return;
+            }
+            if (!user) {
+                alert("Not logged in yet. Please wait a moment or check your internet connection.");
+                return;
+            }
 
-            setRoomCode(code);
-            setMode('host');
-            setLoading(false);
+            setLoading(true);
+            try {
+                const code = generateRoomCode();
+                const { db } = services;
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'werewolf-party-game';
+                const roomRef = fb.doc(db, 'artifacts', appId, 'public', 'data', `rooms/${code}`);
+                
+                await fb.setDoc(roomRef, {
+                  hostId: user.uid,
+                  code,
+                  status: PHASES.LOBBY,
+                  players: [],
+                  gameLog: [],
+                  votes: {},
+                  actions: {},
+                  settings: { roles: ['villager', 'werewolf', 'doctor', 'seer'] },
+                  currentRound: 0,
+                  winner: null
+                });
+    
+                setRoomCode(code);
+                setMode('host');
+            } catch (err) {
+                console.error(err);
+                alert("Error creating game: " + err.message + "\n\nTip: Ensure your Firestore Database rules are set to 'Test Mode'.");
+            } finally {
+                setLoading(false);
+            }
           };
 
           const startGame = async () => {
