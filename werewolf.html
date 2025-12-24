@@ -28,7 +28,8 @@ import {
   Play, 
   CheckCircle,
   Crown,
-  Volume2
+  Volume2,
+  Loader
 } from 'lucide-react';
 
 /* -------------------------------------------------------------------------- */
@@ -209,9 +210,18 @@ export default function App() {
         break;
       case PHASES.NIGHT_SEER:
         // Resolve Night
-        nextStatus = PHASES.DAY_REVEAL;
         const result = resolveNight(players, actions);
-        updates = { ...result }; // contains players update and gameLog
+        // CRITICAL: Check for win condition immediately after night deaths
+        // This prevents the game from continuing into Day if Wolves already won
+        const nightWinner = checkWinCondition(result.players);
+        
+        if (nightWinner) {
+          nextStatus = PHASES.GAME_OVER;
+          updates = { ...result, winner: nightWinner };
+        } else {
+          nextStatus = PHASES.DAY_REVEAL;
+          updates = { ...result }; // contains players update and gameLog
+        }
         break;
       case PHASES.DAY_REVEAL:
         nextStatus = PHASES.DAY_DISCUSSION;
@@ -227,8 +237,11 @@ export default function App() {
         updates = { ...voteResult };
         break;
       case PHASES.DAY_RESULTS:
-        // Check win condition or loop
-        const winCheck = checkWinCondition(updates.players || players);
+        // Check win condition after day vote
+        // Note: updates.players might be undefined here if we just arrived, so fallback to current
+        const dayPlayers = updates.players || players; 
+        const winCheck = checkWinCondition(dayPlayers);
+        
         if (winCheck) {
           nextStatus = PHASES.GAME_OVER;
           updates = { ...updates, winner: winCheck };
@@ -261,11 +274,11 @@ export default function App() {
 
   const resolveNight = (currentPlayers, actions) => {
     let log = [];
-    let players = [...currentPlayers];
+    // Deep copy not strictly needed but good for immutability habits, map creates new array
+    let players = currentPlayers.map(p => ({...p})); 
     
     // 1. Werewolf Target
     // Simple logic: If multiple wolves, take the first target found, or random. 
-    // In a pro app we'd tally votes. Here we assume wolves coordinate or first vote wins.
     const wolfAction = Object.values(actions).find(a => a.role === 'werewolf');
     let targetId = wolfAction ? wolfAction.targetId : null;
 
@@ -273,30 +286,21 @@ export default function App() {
     const doctorAction = Object.values(actions).find(a => a.role === 'doctor');
     let savedId = doctorAction ? doctorAction.targetId : null;
 
-    let victimName = null;
-
     if (targetId) {
       if (targetId === savedId) {
         log.push("The werewolves attacked someone, but they were saved!");
       } else {
         const victimIndex = players.findIndex(p => p.id === targetId);
         if (victimIndex !== -1) {
-          players[victimIndex].isAlive = false;
-          victimName = players[victimIndex].name;
-          log.push(`${victimName} was killed during the night.`);
+          players[victimIndex] = { ...players[victimIndex], isAlive: false };
+          log.push(`${players[victimIndex].name} was killed during the night.`);
         }
       }
     } else {
       log.push("The night was quiet. No one was attacked.");
     }
 
-    // Check game over immediately after night death
-    const winner = checkWinCondition(players);
-    if (winner) {
-       // We'll handle this in the next phase transition or here? 
-       // For simplicity, let the Day Reveal show the death, then Game Over triggers at end of day or if check happens
-    }
-
+    // Note: checkWinCondition is now handled in nextPhase to ensure proper flow
     return { players, gameLog: arrayUnion(...log), actions: {} }; // Clear actions
   };
 
@@ -319,14 +323,14 @@ export default function App() {
       }
     });
 
-    let players = [...currentPlayers];
+    let players = currentPlayers.map(p => ({...p}));
     let log = [];
 
     if (targetIds.length === 1) {
       const victimId = targetIds[0];
       const victimIndex = players.findIndex(p => p.id === victimId);
       if (victimIndex !== -1) {
-        players[victimIndex].isAlive = false;
+        players[victimIndex] = { ...players[victimIndex], isAlive: false };
         log.push(`The village voted to execute ${players[victimIndex].name}.`);
         log.push(`${players[victimIndex].name} was a ${ROLES[players[victimIndex].role.toUpperCase()]?.name}.`);
       }
@@ -401,11 +405,7 @@ export default function App() {
 
     // Night Actions
     if ([PHASES.NIGHT_WEREWOLF, PHASES.NIGHT_DOCTOR, PHASES.NIGHT_SEER].includes(roomData.status)) {
-       const actionKey = `${me.role}-${user.uid}`; // Unique key per actor
-       // For werewolves, we might want a shared key or individual. 
-       // Simplifying: Individual actions, Host logic resolves "First wolf action counts" or similar.
-       // Actually, let's store it as actions: { [userId]: { role: 'werewolf', targetId } }
-       
+       // actions: { [userId]: { role: 'werewolf', targetId } }
        const newActions = { ...roomData.actions, [user.uid]: { role: me.role, targetId } };
        await updateRoom({ actions: newActions });
     }
@@ -421,6 +421,15 @@ export default function App() {
   /* -------------------------------------------------------------------------- */
   /* RENDERERS                                   */
   /* -------------------------------------------------------------------------- */
+
+  // Global Loading State for non-landing modes
+  if (loading && mode !== 'landing') {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <Loader className="w-10 h-10 text-red-500 animate-spin" />
+      </div>
+    );
+  }
 
   if (mode === 'landing') {
     return (
@@ -445,7 +454,7 @@ export default function App() {
               className="w-full py-4 bg-red-600 hover:bg-red-700 active:bg-red-800 rounded-xl font-bold text-lg transition-all flex items-center justify-center gap-2"
             >
               <Crown className="w-5 h-5" />
-              Host New Game
+              {loading ? 'Creating...' : 'Host New Game'}
             </button>
             
             <div className="relative">
@@ -478,7 +487,7 @@ export default function App() {
                 disabled={loading}
                 className="w-full py-4 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-lg transition-all"
               >
-                Join Game
+                {loading ? 'Joining...' : 'Join Game'}
               </button>
             </div>
           </div>
@@ -488,7 +497,9 @@ export default function App() {
   }
 
   // --- HOST VIEW ---
-  if (mode === 'host' && roomData) {
+  if (mode === 'host') {
+    if (!roomData) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-white"><Loader className="animate-spin mr-2"/> Loading Room...</div>;
+
     const playerCount = roomData.players.length;
     const activePlayers = roomData.players.filter(p => p.isAlive).length;
     
@@ -659,7 +670,9 @@ export default function App() {
   }
 
   // --- PLAYER VIEW ---
-  if (mode === 'player' && roomData) {
+  if (mode === 'player') {
+    if (!roomData) return <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white"><Loader className="animate-spin mr-2"/> Connecting...</div>;
+
     const me = roomData.players.find(p => p.id === user.uid);
     if (!me) return <div className="p-8 text-white">Error: Player not found</div>;
 
