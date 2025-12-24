@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Party Game Hub</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        party: {
+                            dark: '#1a1a2e',
+                            purple: '#4a0e4e',
+                            pink: '#c13584',
+                            yellow: '#f9d342',
+                            blue: '#2980b9'
+                        }
+                    },
+                    animation: {
+                        'bounce-slow': 'bounce 3s infinite',
+                        'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #1a1a2e;
+            background-image: radial-gradient(#262642 1px, transparent 1px);
+            background-size: 30px 30px;
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1a1a2e;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #c13584;
+            border-radius: 4px;
+        }
+
+        .game-card {
+            transition: all 0.3s ease;
+        }
+        
+        .game-card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 20px 25px -5px rgba(193, 53, 132, 0.3), 0 10px 10px -5px rgba(193, 53, 132, 0.1);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- Navigation -->
+    <nav class="p-6 flex justify-between items-center relative z-10">
+        <div class="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-party-yellow to-party-pink">
+            <i class="fas fa-gamepad mr-2 text-party-yellow"></i>GameHub
+        </div>
+        <div>
+            <a href="https://github.com/yourusername" target="_blank" class="text-gray-300 hover:text-white transition">
+                <i class="fab fa-github text-2xl"></i>
+            </a>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <header class="container mx-auto px-4 py-12 text-center relative z-10">
+        <h1 class="text-5xl md:text-7xl font-extrabold mb-6 tracking-tight">
+            Level Up Your <br>
+            <span class="text-party-pink">Party Night</span>
+        </h1>
+        <p class="text-xl text-gray-300 mb-10 max-w-2xl mx-auto">
+            A collection of browser-based party games. No apps to install, just pure fun. 
+            Host it on your phone, cast it to the TV, or play on tablets.
+        </p>
+        
+        <div class="flex flex-col sm:flex-row justify-center gap-4">
+            <button onclick="scrollToGames()" class="bg-gradient-to-r from-party-pink to-purple-600 text-white font-bold py-3 px-8 rounded-full shadow-lg hover:shadow-xl transition transform hover:scale-105">
+                Browse Games
+            </button>
+            <button onclick="pickRandomGame()" class="bg-transparent border-2 border-party-yellow text-party-yellow font-bold py-3 px-8 rounded-full hover:bg-party-yellow hover:text-black transition transform hover:scale-105 flex items-center justify-center gap-2">
+                <i class="fas fa-dice"></i> Pick for Me
+            </button>
+        </div>
+    </header>
+
+    <!-- Game Grid -->
+    <main id="games" class="container mx-auto px-4 py-12 flex-grow relative z-10">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            
+            <!-- Game 1: Charades -->
+            <!-- UPDATE HREF: change href="#" to href="./charades/index.html" or similar -->
+            <a href="#" class="game-card block bg-gray-800 rounded-2xl overflow-hidden border border-gray-700 group relative">
+                <div class="h-48 bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center relative overflow-hidden">
+                    <i class="fas fa-theater-masks text-6xl text-white opacity-80 group-hover:scale-110 transition duration-500"></i>
+                    <div class="absolute inset-0 bg-black opacity-0 group-hover:opacity-10 transition duration-300"></div>
+                </div>
+                <div class="p-6">
+                    <h3 class="text-2xl font-bold mb-2 group-hover:text-party-pink transition">Charades</h3>
+                    <p class="text-gray-400 text-sm mb-4">The classic game of acting out words without speaking. Great for energetic groups!</p>
+                    <span class="inline-block bg-gray-700 text-xs px-2 py-1 rounded text-gray-300"><i class="fas fa-users mr-1"></i> 4+ Players</span>
+                    <span class="inline-block bg-gray-700 text-xs px-2 py-1 rounded text-gray-300 ml-2"><i class="fas fa-clock mr-1"></i> 30m</span>
+                </div>
+            </a>
+
+            <!-- Game 2: Never Have I Ever -->
+            <a href="#" class="game-card block bg-gray-800 rounded-2xl overflow-hidden border border-gray-700 group relative">
+                <div class="h-48 bg-gradient-to-br from-pink-500 to-red-500 flex items-center justify-center">
+                    <i class="fas fa-glass-cheers text-6xl text-white opacity-80 group-hover:scale-110 transition duration-500"></i>
+                </div>
+                <div class="p-6">
+                    <h3 class="text-2xl font-bold mb-2 group-hover:text-party-pink transition">Never Have I Ever</h3>
+                    <p class="text-gray-400 text-sm mb-4">Get to know your friends' secrets. A simple prompt generator for spicy conversations.</p>
+                    <span class="inline-block bg-gray-700 text-xs px-2 py-1 rounded text-gray-300"><i class="fas fa-users mr-1"></i> 2+ Players</span>
+                    <span class="inline-block bg-gray-700 text-xs px-2 py-1 rounded text-gray-300 ml-2"><i class="fas fa-clock mr-1"></i> 15m</span>
+                </div>
+            </a>
+
+            <!-- Game 3: Trivia Master -->
+            <a href="#" class="game-card block bg-gray-800 rounded-2xl overflow-hidden border border-gray-700 group relative">
+                <div class="h-48 bg-gradient-to-br from-yellow-400 to-orange-500 flex items-center justify-center">
+                    <i class="fas fa-brain text-6xl text-white opacity-80 group-hover:scale-110 transition duration-500"></i>
+                </div>
+                <div class="p-6">
+                    <h3 class="text-2xl font-bold mb-2 group-hover:text-party-pink transition">Trivia Master</h3>
+                    <p class="text-gray-400 text-sm mb-4">Test your general knowledge with thousands of questions across various categories.</p>
+                    <span class="inline-block bg-gray-700 text-xs px-2 py-1 rounded text-gray-300"><i class="fas fa-users mr-1"></i> 2-10 Players</span>
+                    <span class="inline-block bg-gray-700 text-xs px-2 py-1 rounded text-gray-300 ml-2"><i class="fas fa-clock mr-1"></i> 45m</span>
+                </div>
+            </a>
+
+            <!-- Game 4: Spyfall / Imposter -->
+            <a href="#" class="game-card block bg-gray-800 rounded-2xl overflow-hidden border border-gray-700 group relative">
+                <div class="h-48 bg-gradient-to-br from-gray-600 to-gray-900 flex items-center justify-center">
+                    <i class="fas fa-user-secret text-6xl text-white opacity-80 group-hover:scale-110 transition duration-500"></i>
+                </div>
+                <div class="p-6">
+                    <h3 class="text-2xl font-bold mb-2 group-hover:text-party-pink transition">The Imposter</h3>
+                    <p class="text-gray-400 text-sm mb-4">Everyone knows the location except one person. Find the spy before time runs out!</p>
+                    <span class="inline-block bg-gray-700 text-xs px-2 py-1 rounded text-gray-300"><i class="fas fa-users mr-1"></i> 3-8 Players</span>
+                    <span class="inline-block bg-gray-700 text-xs px-2 py-1 rounded text-gray-300 ml-2"><i class="fas fa-clock mr-1"></i> 10m</span>
+                </div>
+            </a>
+
+            <!-- Game 5: Pictionary -->
+            <a href="#" class="game-card block bg-gray-800 rounded-2xl overflow-hidden border border-gray-700 group relative">
+                <div class="h-48 bg-gradient-to-br from-green-400 to-teal-500 flex items-center justify-center">
+                    <i class="fas fa-paint-brush text-6xl text-white opacity-80 group-hover:scale-110 transition duration-500"></i>
+                </div>
+                <div class="p-6">
+                    <h3 class="text-2xl font-bold mb-2 group-hover:text-party-pink transition">Draw It</h3>
+                    <p class="text-gray-400 text-sm mb-4">You don't need to be an artist. Draw the prompt on your screen and let others guess.</p>
+                    <span class="inline-block bg-gray-700 text-xs px-2 py-1 rounded text-gray-300"><i class="fas fa-users mr-1"></i> 4+ Players</span>
+                    <span class="inline-block bg-gray-700 text-xs px-2 py-1 rounded text-gray-300 ml-2"><i class="fas fa-clock mr-1"></i> 30m</span>
+                </div>
+            </a>
+
+            <!-- Coming Soon Card -->
+            <div class="border-2 border-dashed border-gray-700 rounded-2xl h-full min-h-[300px] flex flex-col items-center justify-center text-gray-500 hover:border-party-pink hover:text-party-pink transition cursor-pointer">
+                <i class="fas fa-plus-circle text-4xl mb-4"></i>
+                <p class="font-bold">More Coming Soon</p>
+                <p class="text-sm mt-2 opacity-60">Suggest a game?</p>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-gray-900 py-8 text-center text-gray-500 text-sm relative z-10">
+        <p>&copy; 2024 Party Game Hub. Built for fun.</p>
+        <p class="mt-2">Hosted on <i class="fab fa-github"></i> GitHub Pages</p>
+    </footer>
+
+    <!-- Scripts -->
+    <script>
+        // Smooth Scroll
+        function scrollToGames() {
+            document.getElementById('games').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Random Game Picker
+        function pickRandomGame() {
+            const cards = document.querySelectorAll('.game-card');
+            const randomIndex = Math.floor(Math.random() * cards.length);
+            const randomCard = cards[randomIndex];
+            
+            // Visual effect for selection
+            cards.forEach(card => card.style.opacity = '0.5');
+            randomCard.style.opacity = '1';
+            randomCard.style.transform = 'scale(1.05)';
+            randomCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            
+            setTimeout(() => {
+                cards.forEach(card => {
+                    card.style.opacity = '1';
+                    card.style.transform = '';
+                });
+                // Optional: Auto click? 
+                // randomCard.click(); 
+                alert(`Let's play ${randomCard.querySelector('h3').innerText}!`);
+            }, 1500);
+        }
+    </script>
+</body>
+</html>
