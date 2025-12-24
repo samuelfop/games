@@ -41,27 +41,33 @@
         import { createRoot } from 'react-dom/client';
         import { Users, Eye, EyeOff, Play, RotateCcw, HelpCircle, Check, X, Skull, Shuffle, UserPlus, Trash2, Sparkles, Loader2, Copy, LogOut } from 'lucide-react';
         import { initializeApp } from 'firebase/app';
-        import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
         import { getFirestore, doc, setDoc, updateDoc, onSnapshot, arrayUnion, arrayRemove, collection, deleteDoc } from 'firebase/firestore';
 
         // ==========================================
         // 🛠️ CONFIGURATION SECTION
         // ==========================================
         
-        // 1. PASTE YOUR FIREBASE CONFIG HERE
-        const firebaseConfig = {
+        // Check if running in Canvas environment
+        const envConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+
+        // 1. FIREBASE CONFIG
+        // If in Canvas, use envConfig. If on GitHub Pages, use the manual object below.
+        const firebaseConfig = envConfig || {
   apiKey: "AIzaSyA5o3sJx6ajDM6EUb2qiLp6l5TmwGI0-IQ",
   authDomain: "imposter-a3139.firebaseapp.com",
   projectId: "imposter-a3139",
   storageBucket: "imposter-a3139.firebasestorage.app",
   messagingSenderId: "760670204548",
-  appId: "1:760670204548:web:b43fd90944589d7ceac8d1",
+  appId: "1:760670204548:web:b43fd90944589d7ceac8d1"
         };
 
-        // 2. PASTE YOUR GEMINI API KEY HERE (If you want AI features)
+        // 2. GEMINI API KEY (If you want AI features)
+        // Canvas injects this automatically, but for GitHub Pages you might need a proxy or put it here (careful with exposure)
         const GEMINI_API_KEY = ""; 
 
-        const APP_ID = "imposter-game-prod";
+        // Use environment App ID if available
+        const APP_ID = typeof __app_id !== 'undefined' ? __app_id : "imposter-game-prod";
 
         // ==========================================
         // END CONFIGURATION
@@ -120,17 +126,29 @@
 
             // Auth
             useEffect(() => {
-                signInAnonymously(auth).catch((error) => {
-                    console.error("Auth failed", error);
-                    setErrorMsg("Authentication failed. Check config.");
-                });
-                return onAuthStateChanged(auth, setUser);
+                const initAuth = async () => {
+                    try {
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            await signInWithCustomToken(auth, __initial_auth_token);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (error) {
+                        console.error("Auth failed", error);
+                        setErrorMsg("Authentication failed: " + error.message);
+                    }
+                };
+                initAuth();
+                const unsubscribe = onAuthStateChanged(auth, setUser);
+                return () => unsubscribe();
             }, []);
 
             // Room Sync
             useEffect(() => {
                 if (!roomCode || !user) return;
+                // Important: Use APP_ID from config/env
                 const roomRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'imposter_rooms', roomCode);
+                
                 const unsubscribe = onSnapshot(roomRef, (docSnap) => {
                     if (docSnap.exists()) {
                         setRoomData(docSnap.data());
@@ -238,10 +256,11 @@
 
             // AI Logic
             const callGemini = async (prompt) => {
-                if(!GEMINI_API_KEY) { alert("Gemini API Key missing in HTML"); return null; }
+                // In Canvas, keys are injected. On GitHub Pages, you'd need the key.
+                const apiKey = GEMINI_API_KEY || ""; 
                 try {
                     const response = await fetch(
-                        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${GEMINI_API_KEY}`,
+                        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
                         {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
