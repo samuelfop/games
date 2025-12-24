@@ -466,18 +466,43 @@
         }
         
         // --- RENDER ---
-        function renderHost() {
+function renderHost() {
+            // --- FIX: SHOW/HIDE START BUTTON ---
+            const startBtn = document.getElementById('start-btn');
+            const lobbyList = document.getElementById('lobby-list');
+            const gameBoard = document.getElementById('game-board');
+
+            if (localState.state === 'LOBBY') {
+                startBtn.classList.remove('hidden'); // Show Start Button
+                lobbyList.classList.remove('hidden'); // Show Player List
+                gameBoard.classList.add('hidden');    // Hide Board
+            } else {
+                startBtn.classList.add('hidden');     // Hide Start Button
+                lobbyList.classList.add('hidden');    // Hide Player List
+                gameBoard.classList.remove('hidden'); // Show Board
+            }
+            // ------------------------------------
+
             if(localState.notification) showNotif(localState.notification);
-            if(localState.players) document.getElementById('lobby-list').innerHTML = Object.values(localState.players).map(p=>p.name).join(' • ');
             
+            // Render Player Names
+            if(localState.players) {
+                document.getElementById('lobby-list').innerHTML = Object.values(localState.players).map(p=>p.name).join(' • ');
+            }
+            
+            // Render Tracks
             const pc = Object.keys(localState.players||{}).length || 5;
             const powers = BOARDS[pc] || BOARDS[5];
             renderTrack('lib-track', 5, localState.libPolicies, 'filled-lib');
             renderTrack('fas-track', 6, localState.fasPolicies, 'filled-fas', powers);
             
+            // Update Counts
             document.getElementById('tracker-count').innerText = localState.electionTracker;
             document.getElementById('deck-count').innerText = localState.deck ? localState.deck.length : 0;
-            if(localState.president) document.getElementById('gov-display').innerText = `Pres: ${getName(localState.president)} | Chan: ${getName(localState.chancellor)}`;
+            
+            if(localState.president) {
+                document.getElementById('gov-display').innerText = `Pres: ${getName(localState.president)} | Chan: ${getName(localState.chancellor)}`;
+            }
         }
 
         function renderPlayer() {
