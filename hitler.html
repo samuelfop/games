@@ -175,16 +175,16 @@
             appId: "1:627949762930:web:3cc0b43c5166d73c5705eb"
         };
 
-        if (typeof firebase === 'undefined') alert("Error: No Internet Connection.");
+        if (typeof firebase === 'undefined') alert("Error: No Internet Connection. Firebase SDK failed to load.");
         else if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
 
         let gameId = null, myId = null, isHost = false, localState = {};
 
-        // Power Unlock Configuration
+        [cite_start]// Power Unlock Configuration [cite: 215-220]
         const BOARDS = {
-            5: [null, null, 'Peak', 'Execution', 'Execution', null],
-            6: [null, null, 'Peak', 'Execution', 'Execution', null],
+            5: [null, null, 'Policy Peek', 'Execution', 'Execution', null],
+            6: [null, null, 'Policy Peek', 'Execution', 'Execution', null],
             7: [null, 'Investigate', 'Special Election', 'Execution', 'Execution', null],
             8: [null, 'Investigate', 'Special Election', 'Execution', 'Execution', null],
             9: ['Investigate', 'Investigate', 'Special Election', 'Execution', 'Execution', null],
@@ -196,22 +196,22 @@
             isHost = true;
             gameId = Math.floor(Math.random()*9000+1000).toString();
             
-            // Clean Initial State
+            // Initial State
             const initialState = {
-                state: 'LOBBY',
-                libPolicies: 0,
-                fasPolicies: 0,
+                state: 'LOBBY', 
+                libPolicies: 0, 
+                fasPolicies: 0, 
                 electionTracker: 0,
-                players: {},
-                deck: createNewDeck(),
+                players: {}, 
+                deck: createNewDeck(), 
                 discard: [], 
-                president: null,
-                chancellor: null,
-                lastChancellor: null,
-                lastPresident: null,
-                votes: {},
-                legislativeHand: [],
-                executiveAction: null,
+                president: null, 
+                chancellor: null, 
+                lastChancellor: null, 
+                lastPresident: null, 
+                votes: {}, 
+                legislativeHand: [], 
+                executiveAction: null, 
                 notification: "Waiting for players..."
             };
 
@@ -236,11 +236,7 @@
             myId = 'p_'+Date.now();
             
             db.ref(gameId+'/players/'+myId).set({ 
-                name: name, 
-                id: myId, 
-                alive: true, 
-                role: null, 
-                party: null 
+                name: name, id: myId, alive: true, role: null, party: null 
             });
             
             switchView('player-view');
@@ -253,9 +249,12 @@
         }
 
         function startGame() {
-            if(!localState.players) return;
+            // DEBUG CHECK
+            console.log("Attempting to start game...");
+            
+            if(!localState || !localState.players) return alert("Error: Game state not loaded. Try creating a new game.");
             const keys = Object.keys(localState.players);
-            if(keys.length < 5) return alert("Need 5-10 players");
+            if(keys.length < 5) return alert(`Need 5-10 players. Currently have: ${keys.length}`);
 
             // Role Distribution
             let roles = ['HITLER'], numFas = 1;
@@ -270,15 +269,19 @@
                 state: 'NOMINATION', 
                 president: keys[Math.floor(Math.random()*keys.length)], 
                 presidentOrder: keys, 
-                notification: "Game Started." 
+                notification: "Game Started. Check your Secret Roles." 
             };
             
             keys.forEach((k, i) => {
                 updates[`players/${k}/role`] = roles[i];
+                [cite_start]// [cite: 272] Hitler is Fascist party member
                 updates[`players/${k}/party`] = (roles[i] === 'LIBERAL') ? 'LIBERAL' : 'FASCIST';
             });
             
-            db.ref(gameId).update(updates);
+            // Send update with Error Catching
+            db.ref(gameId).update(updates)
+                .then(() => console.log("Game started successfully."))
+                .catch(error => alert("FIREBASE ERROR: " + error.message));
         }
 
         // --- HOST LOGIC ---
@@ -294,8 +297,10 @@
             let neins = Object.values(votes).filter(v=>v==='nein').length;
             
             if(jas > neins) {
-                // Win Condition
-                if(localState.fasPolicies >= 3 && getRole(localState.chancellor) === 'HITLER') return endGame("FASCIST VICTORY: Hitler Elected!");
+                [cite_start]// [cite: 243] Hitler Elected Chancellor Win Condition
+                if(localState.fasPolicies >= 3 && getRole(localState.chancellor) === 'HITLER') {
+                    return endGame("FASCIST VICTORY: Hitler was Elected Chancellor!");
+                }
                 
                 // Draw 3 cards
                 drawCards(3).then(hand => {
@@ -304,7 +309,7 @@
                         legislativeHand: hand, 
                         votes: {}, 
                         electionTracker: 0,
-                        notification: "Vote Passed. Legislative Session."
+                        notification: "Vote Passed. President is discarding a policy."
                     });
                 });
             } else {
@@ -313,14 +318,13 @@
         }
 
         function advanceTurn(failed) {
-            // failed defaults to false if undefined, but we use explicit check
             failed = (failed === true); 
             
             let updates = {};
             if(failed) {
                 let t = (localState.electionTracker || 0) + 1;
                 updates.electionTracker = t;
-                if(t >= 3) { // Chaos
+                [cite_start]if(t >= 3) { // [cite: 320] Chaos
                     drawCards(1).then(hand => {
                         const top = hand[0];
                         updates.electionTracker = 0;
@@ -328,17 +332,17 @@
                         updates.fasPolicies = localState.fasPolicies + (top==='FASCIST'?1:0);
                         updates.lastChancellor = null; 
                         updates.lastPresident = null; 
-                        updates.notification = "CHAOS! Top Policy Enacted.";
+                        updates.notification = "CHAOS! 3 Failed Votes. Top Policy Enacted.";
                         
-                        if(updates.libPolicies >= 5) return endGame("LIBERAL WIN");
-                        if(updates.fasPolicies >= 6) return endGame("FASCIST WIN");
+                        if(updates.libPolicies >= 5) return endGame("LIBERAL WIN: 5 Policies Enacted.");
+                        if(updates.fasPolicies >= 6) return endGame("FASCIST WIN: 6 Policies Enacted.");
                         
                         db.ref(gameId).update(updates).then(() => {
                              advanceTurn(false);
                         });
                     });
                     return; 
-                } else updates.notification = "Vote Failed. Tracker Advances.";
+                } else updates.notification = "Vote Failed. Election Tracker Advances.";
             } else {
                 updates.lastPresident = localState.president;
                 updates.lastChancellor = localState.chancellor;
@@ -350,9 +354,16 @@
                 nextPres = localState.specialElectionReturn;
                 updates.specialElectionReturn = null;
             } else {
-                const order = localState.presidentOrder;
+                const order = localState.presidentOrder || Object.keys(localState.players); // Fallback
                 let idx = (order.indexOf(localState.president)+1)%order.length;
-                while(!localState.players[order[idx]].alive) idx = (idx+1)%order.length;
+                // Skip dead players
+                if(localState.players[order[idx]]) {
+                    let safety = 0;
+                    while(!localState.players[order[idx]].alive && safety < 20) {
+                        idx = (idx+1)%order.length;
+                        safety++;
+                    }
+                }
                 nextPres = order[idx];
             }
             
@@ -369,11 +380,11 @@
             let updates = { legislativeHand: [] }, newLib = localState.libPolicies, newFas = localState.fasPolicies;
             if(pol === 'LIBERAL') {
                 updates.libPolicies = ++newLib;
-                if(newLib >= 5) return endGame("LIBERAL WIN");
+                if(newLib >= 5) return endGame("LIBERAL WIN: 5 Policies Enacted.");
                 db.ref(gameId).update(updates).then(() => advanceTurn());
             } else {
                 updates.fasPolicies = ++newFas;
-                if(newFas >= 6) return endGame("FASCIST WIN");
+                if(newFas >= 6) return endGame("FASCIST WIN: 6 Policies Enacted.");
                 
                 const pCount = Object.keys(localState.players).length;
                 const power = (BOARDS[pCount] || BOARDS[5])[newFas - 1];
@@ -386,7 +397,7 @@
             }
         }
 
-        // --- CARD LOGIC ---
+        // --- DECK MANAGEMENT ---
         function createNewDeck() { 
             return Array(6).fill('LIBERAL').concat(Array(11).fill('FASCIST')).sort(()=>Math.random()-.5); 
         }
@@ -396,6 +407,7 @@
             let discard = localState.discard || [];
             
             if(deck.length < num) {
+                [cite_start]// [cite: 324] Reshuffle discard if deck empty
                 if(discard.length === 0) deck = createNewDeck(); 
                 else {
                     deck = deck.concat(discard).sort(()=>Math.random()-.5);
@@ -420,8 +432,11 @@
         
         function nominate(id) {
             const pc = Object.values(localState.players).filter(p=>p.alive).length;
-            if(id === localState.lastChancellor || (pc > 5 && id === localState.lastPresident)) return alert("Term Limited");
-            db.ref(gameId).update({ chancellor: id, state: 'VOTING', notification: "VOTE NOW" });
+            [cite_start]// [cite: 301] Term Limits
+            if(id === localState.lastChancellor) return alert("Term Limited: Player was just Chancellor.");
+            if(pc > 5 && id === localState.lastPresident) return alert("Term Limited: Player was just President.");
+            
+            db.ref(gameId).update({ chancellor: id, state: 'VOTING', notification: "VOTE NOW: Elect the Government." });
         }
         
         function discardPolicy(idx) {
@@ -429,7 +444,7 @@
             const discarded = hand.splice(idx, 1);
             addToDiscard(discarded); 
             
-            if(localState.state === 'LEGISLATIVE_PRES') db.ref(gameId).update({ state: 'LEGISLATIVE_CHAN', legislativeHand: hand });
+            if(localState.state === 'LEGISLATIVE_PRES') db.ref(gameId).update({ state: 'LEGISLATIVE_CHAN', legislativeHand: hand, notification: "Chancellor is enacting a policy." });
             else enactPolicy(hand[0]);
         }
         
@@ -437,23 +452,26 @@
         
         function answerVeto(agree) {
             if(agree) {
+                [cite_start]// [cite: 382] Veto consented = Failed vote
                 addToDiscard(localState.legislativeHand);
                 advanceTurn(true);
-            } else db.ref(gameId).update({ state: 'LEGISLATIVE_CHAN' });
+            } else db.ref(gameId).update({ state: 'LEGISLATIVE_CHAN' }); // Rejected = must enact
         }
 
         function execAction(tid) {
             const act = localState.executiveAction;
             let up = { state: 'NOMINATION', executiveAction: null };
-            if(act === 'Investigate') alert(`Party: ${localState.players[tid].party}`);
+            if(act === 'Investigate') alert(`INVESTIGATION RESULT:\n${localState.players[tid].name} is a member of the ${localState.players[tid].party} party.`);
             else if(act === 'Execution') {
-                if(getRole(tid) === 'HITLER') return endGame("HITLER ASSASSINATED. LIBERALS WIN");
+                if(getRole(tid) === 'HITLER') return endGame("HITLER ASSASSINATED. LIBERALS WIN.");
                 up[`players/${tid}/alive`] = false;
+                up['notification'] = `${localState.players[tid].name} has been Executed.`;
             } else if(act === 'Special Election') {
                 up.state = 'NOMINATION'; 
                 up.president = tid; 
                 up.chancellor = null;
                 up.specialElectionReturn = getNextPresidentIndex(); 
+                up['notification'] = `Special Election! ${localState.players[tid].name} is President.`;
                 db.ref(gameId).update(up); return;
             }
             db.ref(gameId).update(up).then(() => advanceTurn());
@@ -461,34 +479,29 @@
         
         function peekCards() {
             const top3 = (localState.deck || []).slice(0, 3);
-            alert(`Top 3: ${top3.join(', ')}`);
+            alert(`TOP 3 POLICIES:\n1. ${top3[0]}\n2. ${top3[1]}\n3. ${top3[2]}`);
             db.ref(gameId).update({ state: 'NOMINATION', executiveAction: null }).then(() => advanceTurn());
         }
         
         // --- RENDER ---
-function renderHost() {
-            // --- FIX: SHOW/HIDE START BUTTON ---
+        function renderHost() {
+            // SHOW/HIDE BUTTON LOGIC
             const startBtn = document.getElementById('start-btn');
             const lobbyList = document.getElementById('lobby-list');
             const gameBoard = document.getElementById('game-board');
 
             if (localState.state === 'LOBBY') {
-                startBtn.classList.remove('hidden'); // Show Start Button
-                lobbyList.classList.remove('hidden'); // Show Player List
-                gameBoard.classList.add('hidden');    // Hide Board
+                startBtn.classList.remove('hidden');
+                lobbyList.classList.remove('hidden');
+                gameBoard.classList.add('hidden');
             } else {
-                startBtn.classList.add('hidden');     // Hide Start Button
-                lobbyList.classList.add('hidden');    // Hide Player List
-                gameBoard.classList.remove('hidden'); // Show Board
+                startBtn.classList.add('hidden');
+                lobbyList.classList.add('hidden');
+                gameBoard.classList.remove('hidden');
             }
-            // ------------------------------------
 
             if(localState.notification) showNotif(localState.notification);
-            
-            // Render Player Names
-            if(localState.players) {
-                document.getElementById('lobby-list').innerHTML = Object.values(localState.players).map(p=>p.name).join(' • ');
-            }
+            if(localState.players) document.getElementById('lobby-list').innerHTML = Object.values(localState.players).map(p=>p.name).join(' • ');
             
             // Render Tracks
             const pc = Object.keys(localState.players||{}).length || 5;
@@ -496,12 +509,16 @@ function renderHost() {
             renderTrack('lib-track', 5, localState.libPolicies, 'filled-lib');
             renderTrack('fas-track', 6, localState.fasPolicies, 'filled-fas', powers);
             
-            // Update Counts
             document.getElementById('tracker-count').innerText = localState.electionTracker;
             document.getElementById('deck-count').innerText = localState.deck ? localState.deck.length : 0;
             
-            if(localState.president) {
-                document.getElementById('gov-display').innerText = `Pres: ${getName(localState.president)} | Chan: ${getName(localState.chancellor)}`;
+            // Update Status Text
+            if(localState.state === 'LOBBY') {
+                document.getElementById('game-status').innerText = "Status: Waiting for players...";
+            } else if(localState.president) {
+                document.getElementById('game-status').innerText = `President: ${getName(localState.president)}`;
+                if(localState.chancellor) document.getElementById('gov-display').innerText = `Chancellor Nominee: ${getName(localState.chancellor)}`;
+                else document.getElementById('gov-display').innerText = "Nominating Chancellor...";
             }
         }
 
@@ -511,7 +528,7 @@ function renderHost() {
             const amPres = localState.president === myId, amChan = localState.chancellor === myId;
             
             document.getElementById('role-text').innerText = me.role;
-            document.getElementById('role-desc').innerText = me.role === 'LIBERAL' ? "Sustain the government." : "Sabotage.";
+            document.getElementById('role-desc').innerText = me.role === 'LIBERAL' ? "Sustain the government." : "Sabotage and elect Hitler.";
             document.getElementById('my-role-card').className = 'secret-role ' + (me.role==='LIBERAL'?'role-liberal':'role-fascist');
             
             const all = Object.values(localState.players);
@@ -524,24 +541,25 @@ function renderHost() {
             const wait = document.getElementById('wait-msg');
             ctrl.classList.add('hidden'); wait.style.display = 'block'; btns.innerHTML = '';
             
-            if(!me.alive) { wait.innerText = "YOU ARE DEAD"; return; }
+            if(!me.alive) { wait.innerText = "YOU HAVE BEEN EXECUTED."; return; }
 
+            // Dynamic Controls based on State
             if(localState.state === 'NOMINATION' && amPres) {
-                showCtrl("NOMINATION", "Choose Chancellor Candidate", Object.values(localState.players).filter(p=>p.alive && p.id!==myId).map(p=>({txt:p.name, fn:`nominate('${p.id}')`})));
+                showCtrl("NOMINATION", "Nominate a Chancellor Candidate", Object.values(localState.players).filter(p=>p.alive && p.id!==myId).map(p=>({txt:p.name, fn:`nominate('${p.id}')`})));
             } else if(localState.state === 'VOTING' && !localState.votes?.[myId]) {
-                showCtrl("VOTE", `Gov: ${getName(localState.president)} & ${getName(localState.chancellor)}`, [{txt:"JA!", cls:"btn-ja", fn:"handleVote('ja')"}, {txt:"NEIN", cls:"btn-nein", fn:"handleVote('nein')"}]);
+                showCtrl("ELECTION", `Vote on Pres. ${getName(localState.president)} & Chan. ${getName(localState.chancellor)}`, [{txt:"JA! (Yes)", cls:"btn-ja", fn:"handleVote('ja')"}, {txt:"NEIN (No)", cls:"btn-nein", fn:"handleVote('nein')"}]);
             } else if(localState.state === 'LEGISLATIVE_PRES' && amPres) {
-                showCtrl("LEGISLATION", "Discard 1 Policy", localState.legislativeHand.map((c,i)=>({txt:c, cls:c==='LIBERAL'?'btn-ja':'btn-nein', fn:`discardPolicy(${i})`})));
+                showCtrl("LEGISLATIVE SESSION", "Discard 1 Policy. Pass 2 to Chancellor.", localState.legislativeHand.map((c,i)=>({txt:c, cls:c==='LIBERAL'?'btn-ja':'btn-nein', fn:`discardPolicy(${i})`})));
             } else if(localState.state === 'LEGISLATIVE_CHAN' && amChan) {
                 let opts = localState.legislativeHand.map((c,i)=>({txt:c, cls:c==='LIBERAL'?'btn-ja':'btn-nein', fn:`discardPolicy(${i})`}));
-                if(localState.fasPolicies === 5) opts.push({txt:"VETO", cls:"btn-action", fn:"proposeVeto()"});
-                showCtrl("LEGISLATION", "Discard 1 Policy", opts);
+                if(localState.fasPolicies === 5) opts.push({txt:"PROPOSE VETO", cls:"btn-action", fn:"proposeVeto()"});
+                showCtrl("LEGISLATIVE SESSION", "Discard 1. Enact the other.", opts);
             } else if(localState.state === 'VETO_CONSENT' && amPres) {
-                showCtrl("VETO PROPOSAL", "Chancellor wants to Veto. Agree?", [{txt:"AGREE (Discard All)", cls:"btn-ja", fn:"answerVeto(true)"}, {txt:"REJECT", cls:"btn-nein", fn:"answerVeto(false)"}]);
+                showCtrl("VETO PROPOSAL", "Chancellor proposed a Veto. Do you agree?", [{txt:"AGREE (Discard All)", cls:"btn-ja", fn:"answerVeto(true)"}, {txt:"REJECT (Must Enact)", cls:"btn-nein", fn:"answerVeto(false)"}]);
             } else if(localState.state === 'EXECUTIVE_ACTION' && amPres) {
                 const act = localState.executiveAction;
-                if(act === 'Peak') showCtrl("POWER", "Peek Top 3 Cards", [{txt:"PEEK", cls:"btn-action", fn:"peekCards()"}]);
-                else showCtrl("POWER", `Use Power: ${act}`, Object.values(localState.players).filter(p=>p.alive && p.id!==myId).map(p=>({txt:p.name, cls:"btn-action", fn:`execAction('${p.id}')`})));
+                if(act === 'Policy Peek') showCtrl("POWER: POLICY PEEK", "Peek at the top 3 cards.", [{txt:"PEEK", cls:"btn-action", fn:"peekCards()"}]);
+                else showCtrl(`POWER: ${act.toUpperCase()}`, `Select a player to target.`, Object.values(localState.players).filter(p=>p.alive && p.id!==myId).map(p=>({txt:p.name, cls:"btn-action", fn:`execAction('${p.id}')`})));
             }
 
             function showCtrl(title, desc, bArr) {
