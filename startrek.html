@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secret Changeling - Dominion War</title>
+    
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database-compat.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Exo+2:wght@400;700&display=swap');
+
+        :root {
+            --fed-blue: #5991ff; 
+            --fed-gold: #ffcc00;
+            --dom-purple: #b63dff;
+            --dom-red: #d64d4d;
+            --lcars-bg: #000;
+            --panel-bg: #111;
+            --text-main: #99ccff;
+        }
+        
+        body { 
+            font-family: 'Exo 2', sans-serif; 
+            background: var(--lcars-bg); 
+            color: var(--text-main); 
+            text-align: center; 
+            margin: 0; 
+            padding: 20px;
+            background-image: radial-gradient(circle at center, #111 0%, #000 100%);
+        }
+        
+        h1, h2, h3 { 
+            font-family: 'Orbitron', sans-serif; 
+            letter-spacing: 2px; 
+            text-transform: uppercase;
+            font-weight: 700;
+        }
+
+        .hidden { display: none !important; }
+        
+        /* LCARS PANEL STYLING */
+        .card { 
+            background: var(--panel-bg); 
+            color: #eee;
+            padding: 20px; 
+            margin: 15px; 
+            display: inline-block; 
+            border-top: 5px solid var(--fed-blue);
+            border-bottom: 5px solid var(--fed-blue);
+            border-radius: 15px 0 15px 0;
+            box-shadow: 0 0 15px rgba(89, 145, 255, 0.2);
+        }
+        
+        input[type="text"] {
+            background: #222;
+            border: 1px solid var(--fed-blue);
+            color: white;
+            padding: 10px;
+            font-family: 'Orbitron', sans-serif;
+            text-align: center;
+        }
+
+        /* BUTTONS */
+        .btn { 
+            padding: 15px 30px; 
+            font-size: 1.1em; 
+            font-family: 'Orbitron', sans-serif;
+            cursor: pointer; 
+            background: #222; 
+            color: var(--fed-blue); 
+            border: 2px solid var(--fed-blue); 
+            margin: 8px; 
+            border-radius: 20px;
+            transition: all 0.2s;
+            text-transform: uppercase;
+        }
+        .btn:hover { background: var(--fed-blue); color: black; box-shadow: 0 0 10px var(--fed-blue); }
+        .btn:active { transform: scale(0.95); }
+        
+        .btn-ja { 
+            border-color: var(--fed-gold); color: var(--fed-gold); 
+        }
+        .btn-ja:hover { background: var(--fed-gold); color: black; }
+
+        .btn-nein { 
+            border-color: var(--dom-red); color: var(--dom-red); 
+        }
+        .btn-nein:hover { background: var(--dom-red); color: white; }
+
+        .btn-action { 
+            background: #333; color: white; border: 2px solid white; 
+        }
+        
+        /* BOARD */
+        .track { 
+            background: #111; 
+            padding: 15px; 
+            border-radius: 10px; 
+            border: 1px solid #444;
+            display: inline-block;
+        }
+        
+        .policy-slot { 
+            width: 70px; height: 100px; 
+            border: 2px dashed #444; 
+            display: inline-block; margin: 5px; 
+            line-height: 100px; font-weight: bold; font-size: 1.5em; position: relative;
+            background: rgba(255,255,255,0.05);
+            font-family: 'Orbitron';
+        }
+        .policy-slot.filled-lib { 
+            background: var(--fed-blue); border: 2px solid #fff; color: white; 
+            box-shadow: 0 0 10px var(--fed-blue);
+        }
+        .policy-slot.filled-fas { 
+            background: var(--dom-red); border: 2px solid #fff; color: white; 
+            box-shadow: 0 0 10px var(--dom-red);
+        }
+        
+        .power-icon { 
+            position: absolute; bottom: 5px; left: 0; width: 100%; 
+            font-size: 0.35em; line-height: 1.1em; font-family: 'Exo 2', sans-serif; 
+            color: white; font-weight: bold; text-transform: uppercase;
+            text-shadow: 1px 1px 2px black;
+        }
+        
+        /* ROLES */
+        .secret-role { 
+            padding: 20px; border: 4px solid; 
+            display: none; margin: 20px auto; max-width: 320px; 
+            background: #1a1a1a; color: #fff;
+            border-radius: 10px;
+        }
+        .role-liberal { border-color: var(--fed-blue); box-shadow: 0 0 20px var(--fed-blue); }
+        .role-fascist { border-color: var(--dom-red); box-shadow: 0 0 20px var(--dom-red); }
+        
+        /* NOTIFICATIONS */
+        #notification-area { 
+            position: fixed; top: 0; left: 0; width: 100%;
+            background: var(--fed-gold); color: #000; border-bottom: 4px solid #fff;
+            padding: 15px; font-weight: bold; font-size: 1.2em;
+            display: none; z-index: 1000; 
+            font-family: 'Orbitron', sans-serif;
+            text-transform: uppercase;
+            box-shadow: 0 0 30px var(--fed-gold);
+        }
+        
+        .lcars-header {
+            color: var(--fed-gold);
+            border-bottom: 2px solid var(--fed-gold);
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            display: inline-block;
+            min-width: 300px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="notification-area"></div>
+
+    <div id="setup-screen">
+        <h1 style="font-size: 3em; margin-bottom: 0; color: var(--fed-blue); text-shadow: 0 0 10px var(--fed-blue);">SECRET CHANGELING</h1>
+        <p style="margin-top:0; font-style: italic; color: #888;">Stardate 52140. Alpha Quadrant.</p>
+        <br>
+        <div class="card">
+            <h3>PERSONNEL DATABASE</h3>
+            <input type="text" id="playerName" placeholder="Enter Officer Name">
+            <br><br>
+            <button class="btn" onclick="createGame()">Initialize Sim (Host)</button>
+            <button class="btn" onclick="joinGame()">Join Sim (Player)</button>
+        </div>
+    </div>
+
+    <div id="host-view" class="hidden">
+        <div style="display:flex; justify-content:space-between; align-items:center; padding: 0 20px;">
+            <h2 style="font-family: 'Orbitron';">ACCESS CODE: <span id="display-game-code" style="color:var(--fed-gold);"></span></h2>
+            <h2 id="game-status" style="color: #aaa;">Status: Awaiting Officers...</h2>
+        </div>
+        
+        <div id="lobby-list" style="color: var(--fed-blue); margin-bottom: 20px; font-family: 'Orbitron'; font-size: 1.2em;"></div>
+        <button id="start-btn" class="btn hidden" onclick="startGame()" style="border-color: var(--fed-gold); color: var(--fed-gold);">ENGAGE SIMULATION</button>
+        
+        <div id="game-board" class="hidden">
+            <div style="margin-bottom: 20px;">
+                <h3 style="color: var(--fed-blue); margin-bottom: 5px;">FEDERATION PROTOCOLS</h3>
+                <div id="lib-track" class="track" style="border-color: var(--fed-blue);"></div>
+            </div>
+
+            <div>
+                <h3 style="color: var(--dom-red); margin-bottom: 5px;">DOMINION EDICTS</h3>
+                <div id="fas-track" class="track" style="border-color: var(--dom-red);"></div>
+            </div>
+            
+            <div style="display: flex; justify-content: center; gap: 40px; margin-top: 20px; font-size: 1.1em;">
+                <div class="card" style="margin:0; border-color: var(--dom-purple);">
+                    <span style="font-weight:bold;">STALEMATE COUNTER</span><br>
+                    <span id="tracker-count" style="color:var(--dom-red); font-size:1.5em; font-family:'Orbitron';">0</span> / 3
+                </div>
+                <div class="card" style="margin:0; border-color: var(--fed-gold);">
+                    <span style="font-weight:bold;">ORDERS DECK</span><br>
+                    <span id="deck-count" style="font-size:1.5em; font-family:'Orbitron';">--</span>
+                </div>
+            </div>
+            
+            <div id="government-display" style="margin-top: 30px; font-size: 1.4em; color: white; border-top: 1px solid #444; padding-top: 20px;"></div>
+        </div>
+    </div>
+
+    <div id="player-view" class="hidden">
+        <h2 id="my-name-display" style="text-transform: uppercase; color: var(--fed-gold);">OFFICER</h2>
+        
+        <button class="btn" onclick="toggleRole()">ACCESS CLASSIFIED DATA</button>
+        
+        <div id="my-role-card" class="secret-role">
+            <div style="border-bottom: 2px solid #555; margin-bottom: 10px; padding-bottom:5px;">
+                <span style="font-size: 0.8em; text-transform: uppercase;">Allegiance</span>
+            </div>
+            <h1 id="role-text" style="font-size: 2.5em; margin: 10px 0;">ROLE</h1>
+            <p id="role-flavor" style="font-style: italic; font-size: 0.9em;"></p>
+            <hr style="border: 1px dashed #555;">
+            <p id="teammates-info" style="font-weight: bold; font-size: 0.9em;"></p>
+        </div>
+
+        <div id="player-action-area" style="margin-top: 30px;">
+            <div id="instruction-card" class="card" style="width: 90%; max-width: 400px; display: none; margin: 0 auto;">
+                <h3 id="player-instruction-title" style="margin:0; border-bottom:1px solid #555; padding-bottom:5px; color: var(--fed-gold);">INSTRUCTION</h3>
+                <p id="player-instruction-body" style="font-size: 1.1em;"></p>
+            </div>
+            <div id="controls" style="display: flex; flex-direction: column; align-items: center; margin-top: 15px;"></div>
+            <p id="wait-message" style="color: #666; font-style: italic;">Awaiting orders from Command...</p>
+        </div>
+    </div>
+
+    <script>
+        // --- CONFIGURATION ---
+        // REPLACE WITH YOUR FIREBASE CONFIG IF NEEDED
+        const firebaseConfig = {
+            apiKey: "AIzaSyBcn5aaeBbPfWRNm_xremdSHFuI6S4_VCs",
+            authDomain: "seceret-4c9b8.firebaseapp.com",
+            databaseURL: "https://seceret-4c9b8-default-rtdb.firebaseio.com",
+            projectId: "seceret-4c9b8",
+            storageBucket: "seceret-4c9b8.firebasestorage.app",
+            messagingSenderId: "627949762930",
+            appId: "1:627949762930:web:3cc0b43c5166d73c5705eb"
+        };
+
+        if (typeof firebase === 'undefined') alert("Error: Subspace communication offline (Internet required).");
+        else if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        // --- GAME STATE ---
+        let gameId = null;
+        let myId = null;
+        let isHost = false;
+        let localState = {};
+
+        // EXECUTIVE ACTIONS (Dominion Powers)
+        // 5-6: Peek, Vaporize, Vaporize
+        // 7-8: Scan, Special Election, Vaporize, Vaporize
+        const BOARDS = {
+            5: [null, null, 'Future Scans', 'Vaporize', 'Vaporize', null],
+            6: [null, null, 'Future Scans', 'Vaporize', 'Vaporize', null],
+            7: [null, 'Sensor Scan', 'Special Election', 'Vaporize', 'Vaporize', null],
+            8: [null, 'Sensor Scan', 'Special Election', 'Vaporize', 'Vaporize', null],
+            9: ['Sensor Scan', 'Sensor Scan', 'Special Election', 'Vaporize', 'Vaporize', null],
+            10: ['Sensor Scan', 'Sensor Scan', 'Special Election', 'Vaporize', 'Vaporize', null]
+        };
+
+        // --- SETUP ---
+
+        function createGame() {
+            isHost = true;
+            gameId = Math.floor(Math.random() * 9000 + 1000).toString();
+            
+            db.ref(gameId).set({
+                state: 'LOBBY', 
+                libPolicies: 0,
+                fasPolicies: 0,
+                electionTracker: 0,
+                players: {},
+                deck: createInitialDeck(),
+                discard: [],
+                president: null, // Now Admiral
+                chancellor: null, // Now Captain
+                lastChancellor: null,
+                lastPresident: null,
+                votes: {},
+                legislativeHand: [],
+                executiveAction: null,
+                notification: "Stardate 52140. Waiting for officers..."
+            });
+
+            document.getElementById('setup-screen').classList.add('hidden');
+            document.getElementById('host-view').classList.remove('hidden');
+            document.getElementById('display-game-code').innerText = gameId;
+
+            db.ref(gameId).on('value', snap => {
+                localState = snap.val();
+                if (localState) renderHost();
+            });
+
+            setInterval(hostGameLoop, 1000);
+        }
+
+        function joinGame() {
+            const name = document.getElementById('playerName').value;
+            if(!name) return alert("Identify yourself, officer.");
+            gameId = prompt("Enter Simulation Code:");
+            if(!gameId) return;
+
+            myId = 'player_' + Date.now();
+            db.ref(gameId + '/players/' + myId).set({
+                name: name, role: null, party: null, id: myId, alive: true
+            });
+
+            document.getElementById('setup-screen').classList.add('hidden');
+            document.getElementById('player-view').classList.remove('hidden');
+            document.getElementById('my-name-display').innerText = "Officer " + name;
+
+            db.ref(gameId).on('value', snap => {
+                localState = snap.val();
+                if (localState) renderPlayer();
+            });
+        }
+
+        function startGame() {
+            if (!localState || !localState.players) return alert("Waiting for crew assembly.");
+            const playerKeys = Object.keys(localState.players);
+            const count = playerKeys.length;
+            if (count < 5 || count > 10) return alert(`Simulation requires 5-10 officers. You have ${count}.`);
+
+            // Setup Roles
+            let roles = [];
+            let numFascists = 1; 
+            if(count >= 7) numFascists = 2; 
+            if(count >= 9) numFascists = 3; 
+            
+            roles.push('FOUNDER'); // Was HITLER
+            for(let i=0; i<numFascists; i++) roles.push('CHANGELING'); // Was FASCIST
+            while(roles.length < count) roles.push('FEDERATION'); // Was LIBERAL
+            roles = roles.sort(() => Math.random() - 0.5);
+
+            const updates = {};
+            updates['state'] = 'NOMINATION';
+            updates['president'] = playerKeys[Math.floor(Math.random() * count)];
+            updates['presidentOrder'] = playerKeys;
+            updates['notification'] = "Simulation Active. Check Classified Data.";
+
+            playerKeys.forEach((key, index) => {
+                const role = roles[index];
+                updates[`players/${key}/role`] = role;
+                // Founder counts as Dominion (Fascist)
+                updates[`players/${key}/party`] = (role === 'FEDERATION') ? 'FEDERATION' : 'DOMINION';
+            });
+
+            db.ref(gameId).update(updates);
+        }
+
+        // --- HOST LOGIC ---
+
+        function hostGameLoop() {
+            if (!isHost || !localState || !localState.state) return;
+
+            if (localState.state === 'VOTING') {
+                const livingPlayers = Object.values(localState.players).filter(p => p.alive);
+                const votes = localState.votes || {};
+                if (Object.keys(votes).length >= livingPlayers.length && livingPlayers.length > 0) {
+                    evaluateVote(votes);
+                }
+            }
+        }
+
+        function evaluateVote(votes) {
+            let jas = Object.values(votes).filter(v => v === 'ja').length;
+            let neins = Object.values(votes).filter(v => v === 'nein').length;
+
+            if (jas > neins) { 
+                // --- VOTE PASSES ---
+                // Win Condition: Founder elected Captain (Chancellor) after 3 Dominion policies
+                if (localState.fasPolicies >= 3 && getRole(localState.chancellor) === 'FOUNDER') {
+                    return endGame("DOMINION VICTORY: The Founder has seized control of the station!");
+                }
+
+                let deck = localState.deck || [];
+                let discard = localState.discard || [];
+
+                if (deck.length < 3) {
+                    deck = shuffle([...deck, ...discard]);
+                    discard = []; 
+                }
+                
+                const hand = deck.slice(0, 3);
+                const remainingDeck = deck.slice(3);
+
+                db.ref(gameId).update({
+                    state: 'LEGISLATIVE_PRES',
+                    legislativeHand: hand,
+                    deck: remainingDeck,
+                    discard: discard, 
+                    votes: {},
+                    electionTracker: 0,
+                    notification: "Command Established. Admiral reviewing orders."
+                });
+
+            } else { 
+                // --- VOTE FAILS ---
+                advanceTurn(true); 
+            }
+        }
+
+        function advanceTurn(voteFailed = false) {
+            let updates = {};
+            
+            if (voteFailed) {
+                let tracker = (localState.electionTracker || 0) + 1;
+                updates.electionTracker = tracker; 
+                
+                if (tracker >= 3) {
+                    // --- CHAOS ---
+                    let deck = localState.deck || [];
+                    let discard = localState.discard || [];
+
+                    if (deck.length < 1) {
+                        deck = shuffle([...discard]);
+                        discard = [];
+                    }
+
+                    const topCard = deck[0];
+                    updates.deck = deck.slice(1);
+                    updates.discard = discard;
+                    updates.electionTracker = 0; 
+                    
+                    const isLib = (topCard === 'FEDERATION');
+                    updates.libPolicies = localState.libPolicies + (isLib ? 1 : 0);
+                    updates.fasPolicies = localState.fasPolicies + (!isLib ? 1 : 0);
+                    
+                    updates.lastChancellor = null; 
+                    updates.lastPresident = null;
+                    
+                    updates.notification = `GRIDLOCK! Computer automatically executes a ${topCard} Order.`;
+
+                    if (updates.libPolicies >= 5) return endGame("FEDERATION VICTORY: Alpha Quadrant Secure.");
+                    if (updates.fasPolicies >= 6) return endGame("DOMINION VICTORY: The Federation has fallen.");
+                    
+                } else {
+                    updates.notification = "Vote Failed. Stalemate Counter increasing.";
+                }
+            } else {
+                updates.lastPresident = localState.president;
+                updates.lastChancellor = localState.chancellor;
+            }
+
+            // ROTATION
+            let nextPres;
+            if (localState.specialElectionReturn) {
+                nextPres = localState.specialElectionReturn;
+                updates.specialElectionReturn = null;
+            } else {
+                const pOrder = localState.presidentOrder;
+                const currIdx = pOrder.indexOf(localState.president);
+                let nextIdx = (currIdx + 1) % pOrder.length;
+                let safety = 0;
+                while (!localState.players[pOrder[nextIdx]].alive && safety < 20) {
+                    nextIdx = (nextIdx + 1) % pOrder.length;
+                    safety++;
+                }
+                nextPres = pOrder[nextIdx];
+            }
+
+            updates.state = 'NOMINATION';
+            updates.president = nextPres;
+            updates.chancellor = null;
+            updates.votes = {};
+            updates.legislativeHand = [];
+            
+            db.ref(gameId).update(updates);
+        }
+
+        function enactPolicy(policy) {
+            let updates = { legislativeHand: [] };
+            let newLib = localState.libPolicies;
+            let newFas = localState.fasPolicies;
+
+            if (policy === 'FEDERATION') {
+                newLib++;
+                updates.libPolicies = newLib;
+                if (newLib >= 5) return endGame("FEDERATION VICTORY: 5 Protocols Enacted.");
+                db.ref(gameId).update(updates).then(() => advanceTurn());
+            } else {
+                newFas++;
+                updates.fasPolicies = newFas;
+                if (newFas >= 6) return endGame("DOMINION VICTORY: 6 Edicts Enacted.");
+
+                const playerCount = Object.keys(localState.players).length;
+                const board = BOARDS[playerCount] || BOARDS[5];
+                const power = board[newFas - 1];
+
+                if (power) {
+                    updates.state = 'EXECUTIVE_ACTION';
+                    updates.executiveAction = power;
+                    updates.notification = `DOMINION POWER UNLOCKED: ${power.toUpperCase()}`;
+                    db.ref(gameId).update(updates);
+                } else {
+                    db.ref(gameId).update(updates).then(() => advanceTurn());
+                }
+            }
+        }
+
+        // --- PLAYER ACTIONS ---
+
+        function handleVote(vote) { db.ref(gameId + '/votes/' + myId).set(vote); }
+
+        function nominate(targetId) {
+            const pCount = Object.values(localState.players).filter(p => p.alive).length;
+            if (targetId === localState.lastChancellor) return alert("Officer was just Captain (Ineligible).");
+            if (pCount > 5 && targetId === localState.lastPresident) return alert("Officer was just Admiral (Ineligible).");
+            
+            db.ref(gameId).update({ 
+                chancellor: targetId, state: 'VOTING',
+                notification: `Command nominees selected. Voting in progress.` 
+            });
+        }
+
+        function legislationDiscard(index) {
+            let hand = [...localState.legislativeHand];
+            const discardedCard = hand.splice(index, 1)[0]; 
+            const currentDiscard = localState.discard || [];
+            const newDiscard = [...currentDiscard, discardedCard];
+
+            if (localState.state === 'LEGISLATIVE_PRES') {
+                db.ref(gameId).update({ 
+                    state: 'LEGISLATIVE_CHAN', 
+                    legislativeHand: hand,
+                    discard: newDiscard,
+                    notification: "The Captain is now reviewing orders."
+                });
+            } else {
+                db.ref(gameId).update({ discard: newDiscard }).then(() => {
+                    enactPolicy(hand[0]);
+                });
+            }
+        }
+
+        function proposeVeto() { 
+            db.ref(gameId).update({ 
+                state: 'VETO_CONSENT',
+                notification: "Captain proposes to scrap all orders (VETO)." 
+            }); 
+        }
+
+        function answerVeto(agree) {
+            if (agree) advanceTurn(true); 
+            else db.ref(gameId).update({ state: 'LEGISLATIVE_CHAN' }); 
+        }
+
+        function performExecutiveAction(targetId) {
+            const action = localState.executiveAction;
+            let updates = { state: 'NOMINATION', executiveAction: null }; 
+
+            if (action === 'Sensor Scan') {
+                const party = localState.players[targetId].party;
+                alert(`SENSOR READOUT:\n\nOfficer: ${getName(targetId)}\nAllegiance: ${party}`); 
+            } 
+            else if (action === 'Vaporize') {
+                if (getRole(targetId) === 'FOUNDER') return endGame("FEDERATION VICTORY: The Founder has been vaporized!");
+                updates[`players/${targetId}/alive`] = false;
+                updates.notification = `${getName(targetId)} has been vaporized.`;
+            } 
+            else if (action === 'Special Election') {
+                updates.state = 'NOMINATION';
+                updates.president = targetId;
+                updates.chancellor = null;
+                updates.specialElectionReturn = getNextPresidentIndex(); 
+                updates.notification = `Field Promotion! ${getName(targetId)} takes command.`;
+                db.ref(gameId).update(updates);
+                return;
+            }
+            db.ref(gameId).update(updates).then(() => { if (action !== 'Special Election') advanceTurn(); });
+        }
+
+        function peekPolicy() {
+            const top3 = localState.deck.slice(0, 3);
+            alert(`FUTURE SCANS:\n\n1. ${top3[0]}\n2. ${top3[1]}\n3. ${top3[2]}`);
+            db.ref(gameId).update({ state: 'NOMINATION', executiveAction: null }).then(() => advanceTurn());
+        }
+
+        // --- RENDER ---
+
+        function renderHost() {
+            document.getElementById('start-btn').classList.toggle('hidden', localState.state !== 'LOBBY');
+            document.getElementById('game-board').classList.toggle('hidden', localState.state === 'LOBBY');
+            
+            if(localState.notification) showNotification(localState.notification);
+
+            if (localState.players && localState.state === 'LOBBY') {
+                const pList = Object.values(localState.players).map(p => p.name).join(' • ');
+                document.getElementById('lobby-list').innerHTML = pList;
+            }
+
+            const pCount = Object.keys(localState.players || {}).length || 5;
+            const powers = BOARDS[pCount] || BOARDS[5];
+            
+            renderTrack('lib-track', 5, localState.libPolicies, 'filled-lib', []);
+            renderTrack('fas-track', 6, localState.fasPolicies, 'filled-fas', powers);
+            
+            document.getElementById('tracker-count').innerText = localState.electionTracker;
+            document.getElementById('deck-count').innerText = localState.deck ? localState.deck.length : 0;
+            
+            if(localState.president) {
+                let txt = `Admiral ${getName(localState.president)}`;
+                if(localState.chancellor) txt += ` has nominated Captain ${getName(localState.chancellor)}`;
+                document.getElementById('government-display').innerText = txt;
+            }
+        }
+
+        function renderPlayer() {
+            if (!localState.players || !localState.players[myId]) return;
+            const me = localState.players[myId];
+            const amPres = (localState.president === myId);
+            const amChan = (localState.chancellor === myId);
+
+            // --- ROLE CARD DISPLAY ---
+            const roleEl = document.getElementById('my-role-card');
+            const roleText = document.getElementById('role-text');
+            const roleFlavor = document.getElementById('role-flavor');
+            const teamInfo = document.getElementById('teammates-info');
+            
+            if(me.role) {
+                roleText.innerText = me.role;
+                roleEl.className = 'secret-role ' + (me.role === 'FEDERATION' ? 'role-liberal' : 'role-fascist');
+                
+                if (me.role === 'FEDERATION') roleFlavor.innerText = "Protect the Alpha Quadrant. You suspect Changelings are everywhere.";
+                else if (me.role === 'CHANGELING') roleFlavor.innerText = "Sabotage the Federation. Install the Founder as Captain.";
+                else roleFlavor.innerText = "Seize control. If elected Captain after 3 Dominion Edicts, we win.";
+
+                const all = Object.values(localState.players);
+                if (me.role === 'CHANGELING') {
+                    const others = all.filter(p => (p.role === 'CHANGELING' || p.role === 'FOUNDER') && p.id !== myId);
+                    teamInfo.innerText = "THE LINK: " + others.map(p => `${p.name} (${p.role})`).join(', ');
+                } else if (me.role === 'FOUNDER' && all.length <= 6) {
+                    const others = all.filter(p => p.role === 'CHANGELING');
+                    teamInfo.innerText = "YOUR VORTA: " + others.map(p => p.name).join(', ');
+                } else {
+                    teamInfo.innerText = "Trust no one.";
+                }
+            }
+
+            // --- CONTROLS ---
+            const controls = document.getElementById('controls');
+            const instCard = document.getElementById('instruction-card');
+            const instTitle = document.getElementById('player-instruction-title');
+            const instBody = document.getElementById('player-instruction-body');
+            const waitMsg = document.getElementById('wait-message');
+            
+            controls.innerHTML = '';
+            instCard.style.display = 'none';
+            waitMsg.style.display = 'block';
+
+            if (!me.alive) {
+                waitMsg.innerText = "STATUS: DECEASED (VAPORIZED).";
+                waitMsg.style.color = "red";
+                return;
+            }
+
+            if (localState.state === 'NOMINATION') {
+                if (amPres) {
+                    waitMsg.style.display = 'none';
+                    instCard.style.display = 'block';
+                    instTitle.innerText = "ADMIRAL: SELECT CAPTAIN";
+                    instBody.innerText = "Nominate an officer for the Captaincy.";
+                    
+                    Object.values(localState.players).forEach(p => {
+                        if (p.id !== myId && p.alive) {
+                            controls.innerHTML += `<button class="btn" onclick="nominate('${p.id}')">${p.name}</button>`;
+                        }
+                    });
+                } else {
+                    waitMsg.innerText = `Admiral ${getName(localState.president)} is selecting a Captain...`;
+                }
+            }
+            else if (localState.state === 'VOTING') {
+                if (!localState.votes || !localState.votes[myId]) {
+                    waitMsg.style.display = 'none';
+                    instCard.style.display = 'block';
+                    instTitle.innerText = "VOTE REQUIRED";
+                    instBody.innerText = `Approve appointment of:\nAdm. ${getName(localState.president)} & Cpt. ${getName(localState.chancellor)}?`;
+                    controls.innerHTML = `
+                        <button class="btn btn-ja" onclick="handleVote('ja')">AYE</button>
+                        <button class="btn btn-nein" onclick="handleVote('nein')">NAY</button>
+                    `;
+                } else {
+                    waitMsg.innerText = "Vote logged in main computer. Waiting for others...";
+                }
+            }
+            else if (localState.state === 'LEGISLATIVE_PRES' && amPres) {
+                waitMsg.style.display = 'none';
+                instCard.style.display = 'block';
+                instTitle.innerText = "ADMIRAL'S ORDERS";
+                instBody.innerText = "Review 3 Orders. Discard 1. Transmit 2 to Captain.";
+                localState.legislativeHand.forEach((card, i) => {
+                    controls.innerHTML += `<button class="btn ${card==='FEDERATION'?'btn-ja':'btn-nein'}" onclick="legislationDiscard(${i})">Discard ${card}</button>`;
+                });
+            }
+            else if (localState.state === 'LEGISLATIVE_CHAN' && amChan) {
+                waitMsg.style.display = 'none';
+                instCard.style.display = 'block';
+                instTitle.innerText = "CAPTAIN'S DECISION";
+                instBody.innerText = "Discard 1. The remaining Order will be EXECUTED.";
+                localState.legislativeHand.forEach((card, i) => {
+                    controls.innerHTML += `<button class="btn ${card==='FEDERATION'?'btn-ja':'btn-nein'}" onclick="legislationDiscard(${i})">Discard ${card}</button>`;
+                });
+                if (localState.fasPolicies === 5) {
+                     controls.innerHTML += `<br><button class="btn btn-action" onclick="proposeVeto()">PROPOSE VETO</button>`;
+                }
+            }
+            else if (localState.state === 'VETO_CONSENT' && amPres) {
+                waitMsg.style.display = 'none';
+                instCard.style.display = 'block';
+                instTitle.innerText = "VETO REQUESTED";
+                instBody.innerText = "The Captain wants to scrap the agenda. Agree?";
+                controls.innerHTML = `
+                    <button class="btn btn-ja" onclick="answerVeto(true)">AGREE (Scrap All)</button>
+                    <button class="btn btn-nein" onclick="answerVeto(false)">DENY (Must Enact)</button>
+                `;
+            }
+            else if (localState.state === 'EXECUTIVE_ACTION' && amPres) {
+                waitMsg.style.display = 'none';
+                instCard.style.display = 'block';
+                const act = localState.executiveAction;
+                instTitle.innerText = "EMERGENCY POWERS";
+                instBody.innerText = `Dominion influence high. Execute power: ${act.toUpperCase()}`;
+                
+                if (act === 'Future Scans') {
+                    controls.innerHTML = `<button class="btn btn-action" onclick="peekPolicy()">Scan Future Orders</button>`;
+                } else {
+                    let actionVerb = "Select";
+                    if(act === 'Vaporize') actionVerb = "VAPORIZE";
+                    if(act === 'Sensor Scan') actionVerb = "SCAN";
+                    
+                    Object.values(localState.players).forEach(p => {
+                        if (p.id !== myId && p.alive) { 
+                            controls.innerHTML += `<button class="btn btn-action" onclick="performExecutiveAction('${p.id}')">${actionVerb} ${p.name.toUpperCase()}</button>`;
+                        }
+                    });
+                }
+            }
+        }
+
+        // --- UTILS ---
+
+        function shuffle(array) {
+            let currentIndex = array.length, randomIndex;
+            while (currentIndex != 0) {
+                randomIndex = Math.floor(Math.random() * currentIndex);
+                currentIndex--;
+                [array[currentIndex], array[randomIndex]] = [array[randomIndex], array[currentIndex]];
+            }
+            return array;
+        }
+
+        function createInitialDeck() {
+            return shuffle(Array(6).fill('FEDERATION').concat(Array(11).fill('DOMINION')));
+        }
+
+        function getRole(id) { return localState.players[id] ? localState.players[id].role : null; }
+        function getName(id) { return localState.players[id] ? localState.players[id].name : 'Unknown'; }
+
+        function renderTrack(id, max, curr, cls, powers) {
+            const div = document.getElementById(id);
+            div.innerHTML = '';
+            for(let i=0; i<max; i++) {
+                let d = document.createElement('div');
+                d.className = `policy-slot ${i<curr ? cls : ''}`;
+                d.innerText = i+1;
+                if (powers && powers[i]) {
+                    let pSpan = document.createElement('span');
+                    pSpan.className = 'power-icon';
+                    pSpan.innerText = powers[i];
+                    d.appendChild(pSpan);
+                }
+                div.appendChild(d);
+            }
+        }
+
+        function showNotification(msg) {
+            const el = document.getElementById('notification-area');
+            el.innerText = msg;
+            el.style.display = 'block';
+            setTimeout(() => el.style.display = 'none', 5000);
+        }
+
+        function endGame(msg) {
+            db.ref(gameId).update({ state: 'GAMEOVER', notification: msg });
+            showNotification(msg);
+            alert(msg);
+        }
+
+        function toggleRole() {
+            const el = document.getElementById('my-role-card');
+            el.style.display = (el.style.display === 'block') ? 'none' : 'block';
+        }
+
+        function getNextPresidentIndex() {
+             const pOrder = localState.presidentOrder;
+             const currIdx = pOrder.indexOf(localState.president);
+             let nextIdx = (currIdx + 1) % pOrder.length;
+             while (!localState.players[pOrder[nextIdx]].alive) { nextIdx = (nextIdx + 1) % pOrder.length; }
+             return localState.players[pOrder[nextIdx]].id;
+        }
+    </script>
+</body>
+</html>
