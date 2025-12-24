@@ -9,12 +9,12 @@ import { getFirestore, doc, setDoc, updateDoc, onSnapshot, arrayUnion, arrayRemo
 // --- FIREBASE CONFIGURATION ---
 // FOR GITHUB PAGES: Replace the lines below with your actual firebaseConfig from the Firebase Console.
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT.appspot.com",
-  messagingSenderId: "SENDER_ID",
-  appId: "APP_ID"
+  apiKey: "AIzaSyA5o3sJx6ajDM6EUb2qiLp6l5TmwGI0-IQ",
+  authDomain: "imposter-a3139.firebaseapp.com",
+  projectId: "imposter-a3139",
+  storageBucket: "imposter-a3139.firebasestorage.app",
+  messagingSenderId: "760670204548",
+  appId: "1:760670204548:web:b43fd90944589d7ceac8d1",
 };
 
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'imposter-game-default';
