@@ -1,813 +1,658 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { initializeApp } from 'firebase/app';
-import { 
-  getAuth, 
-  signInAnonymously, 
-  signInWithCustomToken,
-  onAuthStateChanged 
-} from 'firebase/auth';
-import { 
-  getFirestore, 
-  collection, 
-  doc, 
-  setDoc, 
-  onSnapshot, 
-  updateDoc, 
-  arrayUnion,
-  getDoc,
-  deleteDoc
-} from 'firebase/firestore';
-import { 
-  Moon, 
-  Sun, 
-  Users, 
-  Eye, 
-  Skull, 
-  Heart, 
-  Shield, 
-  Play, 
-  CheckCircle,
-  Crown,
-  Volume2,
-  Loader
-} from 'lucide-react';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Werewolf Party Game</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-/* -------------------------------------------------------------------------- */
-/* FIREBASE INIT                               */
-/* -------------------------------------------------------------------------- */
-
-const firebaseConfig = JSON.parse(__firebase_config);
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-/* -------------------------------------------------------------------------- */
-/* CONSTANTS                                   */
-/* -------------------------------------------------------------------------- */
-
-const ROLES = {
-  VILLAGER: { id: 'villager', name: 'Villager', team: 'villagers', icon: Users, desc: 'Find the wolves. Vote to eliminate them during the day.' },
-  WEREWOLF: { id: 'werewolf', name: 'Werewolf', team: 'werewolves', icon: Moon, desc: 'Eat a villager each night. Don\'t get caught.' },
-  DOCTOR: { id: 'doctor', name: 'Doctor', team: 'villagers', icon: Heart, desc: 'Protect one person from death each night.' },
-  SEER: { id: 'seer', name: 'Seer', team: 'villagers', icon: Eye, desc: 'See the true role of one player each night.' },
-};
-
-const PHASES = {
-  LOBBY: 'LOBBY',
-  NIGHT_INTRO: 'NIGHT_INTRO',
-  NIGHT_WEREWOLF: 'NIGHT_WEREWOLF',
-  NIGHT_DOCTOR: 'NIGHT_DOCTOR',
-  NIGHT_SEER: 'NIGHT_SEER',
-  NIGHT_RESOLVE: 'NIGHT_RESOLVE',
-  DAY_REVEAL: 'DAY_REVEAL',
-  DAY_DISCUSSION: 'DAY_DISCUSSION',
-  DAY_VOTE: 'DAY_VOTE',
-  DAY_RESULTS: 'DAY_RESULTS',
-  GAME_OVER: 'GAME_OVER'
-};
-
-/* -------------------------------------------------------------------------- */
-/* UTILS                                       */
-/* -------------------------------------------------------------------------- */
-
-const generateRoomCode = () => Math.random().toString(36).substring(2, 6).toUpperCase();
-const shuffleArray = (array) => array.sort(() => Math.random() - 0.5);
-
-/* -------------------------------------------------------------------------- */
-/* COMPONENT                                   */
-/* -------------------------------------------------------------------------- */
-
-export default function App() {
-  const [user, setUser] = useState(null);
-  const [mode, setMode] = useState('landing'); // landing, host, player
-  const [roomCode, setRoomCode] = useState('');
-  const [playerName, setPlayerName] = useState('');
-  const [roomData, setRoomData] = useState(null);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  // Auth Setup
-  useEffect(() => {
-    const initAuth = async () => {
-      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-        await signInWithCustomToken(auth, __initial_auth_token);
-      } else {
-        await signInAnonymously(auth);
-      }
-    };
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, setUser);
-    return () => unsubscribe();
-  }, []);
-
-  // Room Listener
-  useEffect(() => {
-    if (!user || !roomCode) return;
-
-    const roomRef = doc(db, 'artifacts', appId, 'public', 'data', `rooms/${roomCode}`);
-    const unsubscribe = onSnapshot(roomRef, (snapshot) => {
-      if (snapshot.exists()) {
-        setRoomData(snapshot.data());
-      } else {
-        // Only error if we expected to be in a room
-        if (mode !== 'landing') {
-          setError('Room closed or does not exist.');
-          setMode('landing');
-          setRoomData(null);
+    <style>
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
-      }
-    }, (err) => {
-      console.error("Room listener error", err);
-      setError("Connection lost. Reconnecting...");
-    });
-
-    return () => unsubscribe();
-  }, [user, roomCode, mode]);
-
-  /* -------------------------- HOST LOGIC -------------------------- */
-
-  const createGame = async () => {
-    if (!user) return;
-    setLoading(true);
-    const code = generateRoomCode();
-    const roomRef = doc(db, 'artifacts', appId, 'public', 'data', `rooms/${code}`);
-    
-    await setDoc(roomRef, {
-      hostId: user.uid,
-      code,
-      status: PHASES.LOBBY,
-      players: [],
-      gameLog: [],
-      votes: {}, // { targetId: count } or { voterId: targetId } depending on phase
-      actions: {}, // { role: { actorId: targetId } }
-      settings: {
-        roles: ['villager', 'werewolf', 'doctor', 'seer'] // active roles pool
-      },
-      currentRound: 0,
-      winner: null
-    });
-
-    setRoomCode(code);
-    setMode('host');
-    setLoading(false);
-  };
-
-  const startGame = async () => {
-    if (!roomData) return;
-    
-    // 1. Assign Roles
-    const players = [...roomData.players];
-    const playerCount = players.length;
-    
-    // Auto-balance
-    let werewolfCount = Math.max(1, Math.floor(playerCount / 4));
-    if (playerCount < 4) werewolfCount = 1; // Min 1 wolf
-
-    const roleDeck = [];
-    for (let i = 0; i < werewolfCount; i++) roleDeck.push(ROLES.WEREWOLF.id);
-    if (playerCount > 2) roleDeck.push(ROLES.SEER.id);
-    if (playerCount > 3) roleDeck.push(ROLES.DOCTOR.id);
-    
-    while (roleDeck.length < playerCount) {
-      roleDeck.push(ROLES.VILLAGER.id);
-    }
-
-    const shuffledRoles = shuffleArray(roleDeck);
-    
-    const newPlayers = players.map((p, idx) => ({
-      ...p,
-      role: shuffledRoles[idx],
-      isAlive: true,
-      id: p.id // Ensure ID persists
-    }));
-
-    await updateRoom({
-      status: PHASES.NIGHT_INTRO,
-      players: newPlayers,
-      currentRound: 1,
-      gameLog: ['The game has begun!'],
-      actions: {},
-      votes: {}
-    });
-  };
-
-  const nextPhase = async () => {
-    if (!roomData) return;
-    const { status, currentRound, actions, players } = roomData;
-    let nextStatus = status;
-    let updates = {};
-
-    switch (status) {
-      case PHASES.NIGHT_INTRO:
-        nextStatus = PHASES.NIGHT_WEREWOLF;
-        break;
-      case PHASES.NIGHT_WEREWOLF:
-        nextStatus = PHASES.NIGHT_DOCTOR;
-        break;
-      case PHASES.NIGHT_DOCTOR:
-        nextStatus = PHASES.NIGHT_SEER;
-        break;
-      case PHASES.NIGHT_SEER:
-        // Resolve Night
-        const result = resolveNight(players, actions);
-        // CRITICAL: Check for win condition immediately after night deaths
-        // This prevents the game from continuing into Day if Wolves already won
-        const nightWinner = checkWinCondition(result.players);
-        
-        if (nightWinner) {
-          nextStatus = PHASES.GAME_OVER;
-          updates = { ...result, winner: nightWinner };
-        } else {
-          nextStatus = PHASES.DAY_REVEAL;
-          updates = { ...result }; // contains players update and gameLog
+        .animate-fade-in {
+            animation: fadeIn 0.5s ease-out forwards;
         }
-        break;
-      case PHASES.DAY_REVEAL:
-        nextStatus = PHASES.DAY_DISCUSSION;
-        break;
-      case PHASES.DAY_DISCUSSION:
-        nextStatus = PHASES.DAY_VOTE;
-        updates = { votes: {} }; // Clear votes for day voting
-        break;
-      case PHASES.DAY_VOTE:
-        // Calculate Vote Result
-        nextStatus = PHASES.DAY_RESULTS;
-        const voteResult = resolveDayVote(players, roomData.votes);
-        updates = { ...voteResult };
-        break;
-      case PHASES.DAY_RESULTS:
-        // Check win condition after day vote
-        // Note: updates.players might be undefined here if we just arrived, so fallback to current
-        const dayPlayers = updates.players || players; 
-        const winCheck = checkWinCondition(dayPlayers);
-        
-        if (winCheck) {
-          nextStatus = PHASES.GAME_OVER;
-          updates = { ...updates, winner: winCheck };
-        } else {
-          nextStatus = PHASES.NIGHT_INTRO;
-          updates = { ...updates, currentRound: currentRound + 1, actions: {}, votes: {} };
+        .animate-spin-slow {
+            animation: spin 3s linear infinite;
         }
-        break;
-      case PHASES.GAME_OVER:
-         // Reset to lobby
-         nextStatus = PHASES.LOBBY;
-         updates = { 
-           players: players.map(p => ({ id: p.id, name: p.name, isAlive: true, role: null })),
-           gameLog: [],
-           currentRound: 0,
-           winner: null
-         };
-         break;
-      default:
-        break;
-    }
-
-    await updateRoom({ status: nextStatus, ...updates });
-  };
-
-  const updateRoom = async (data) => {
-    const roomRef = doc(db, 'artifacts', appId, 'public', 'data', `rooms/${roomCode}`);
-    await updateDoc(roomRef, data);
-  };
-
-  const resolveNight = (currentPlayers, actions) => {
-    let log = [];
-    // Deep copy not strictly needed but good for immutability habits, map creates new array
-    let players = currentPlayers.map(p => ({...p})); 
-    
-    // 1. Werewolf Target
-    // Simple logic: If multiple wolves, take the first target found, or random. 
-    const wolfAction = Object.values(actions).find(a => a.role === 'werewolf');
-    let targetId = wolfAction ? wolfAction.targetId : null;
-
-    // 2. Doctor Save
-    const doctorAction = Object.values(actions).find(a => a.role === 'doctor');
-    let savedId = doctorAction ? doctorAction.targetId : null;
-
-    if (targetId) {
-      if (targetId === savedId) {
-        log.push("The werewolves attacked someone, but they were saved!");
-      } else {
-        const victimIndex = players.findIndex(p => p.id === targetId);
-        if (victimIndex !== -1) {
-          players[victimIndex] = { ...players[victimIndex], isAlive: false };
-          log.push(`${players[victimIndex].name} was killed during the night.`);
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
         }
-      }
-    } else {
-      log.push("The night was quiet. No one was attacked.");
-    }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100">
+    <div id="root"></div>
 
-    // Note: checkWinCondition is now handled in nextPhase to ensure proper flow
-    return { players, gameLog: arrayUnion(...log), actions: {} }; // Clear actions
-  };
+    <script type="text/babel" data-type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
+        import { 
+            getAuth, 
+            signInAnonymously, 
+            signInWithCustomToken,
+            onAuthStateChanged 
+        } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
+        import { 
+            getFirestore, 
+            collection, 
+            doc, 
+            setDoc, 
+            onSnapshot, 
+            updateDoc, 
+            arrayUnion,
+            getDoc,
+            deleteDoc 
+        } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
 
-  const resolveDayVote = (currentPlayers, votes) => {
-    // votes is { voterId: targetId }
-    const voteCounts = {};
-    Object.values(votes).forEach(targetId => {
-      voteCounts[targetId] = (voteCounts[targetId] || 0) + 1;
-    });
+        // --- ICONS (Inline SVGs) ---
+        const Icons = {
+            Moon: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>,
+            Sun: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>,
+            Users: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
+            Eye: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>,
+            Skull: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><path d="M8 20v2h8v-2"/><path d="m12.5 17-.5-1-.5 1h1z"/><path d="M16 20a2 2 0 0 0 1.56-3.25 8 8 0 1 0-11.12 0A2 2 0 0 0 8 20"/></svg>,
+            Heart: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>,
+            Play: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg>,
+            Crown: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14"/></svg>,
+            Loader: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+        };
 
-    let maxVotes = 0;
-    let targetIds = [];
+        // --- APP LOGIC ---
 
-    Object.entries(voteCounts).forEach(([id, count]) => {
-      if (count > maxVotes) {
-        maxVotes = count;
-        targetIds = [id];
-      } else if (count === maxVotes) {
-        targetIds.push(id);
-      }
-    });
+        const { useState, useEffect } = React;
 
-    let players = currentPlayers.map(p => ({...p}));
-    let log = [];
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
-    if (targetIds.length === 1) {
-      const victimId = targetIds[0];
-      const victimIndex = players.findIndex(p => p.id === victimId);
-      if (victimIndex !== -1) {
-        players[victimIndex] = { ...players[victimIndex], isAlive: false };
-        log.push(`The village voted to execute ${players[victimIndex].name}.`);
-        log.push(`${players[victimIndex].name} was a ${ROLES[players[victimIndex].role.toUpperCase()]?.name}.`);
-      }
-    } else {
-      log.push("The vote was tied. No one was executed.");
-    }
+        const ROLES = {
+          VILLAGER: { id: 'villager', name: 'Villager', team: 'villagers', icon: Icons.Users, desc: 'Find the wolves. Vote to eliminate them during the day.' },
+          WEREWOLF: { id: 'werewolf', name: 'Werewolf', team: 'werewolves', icon: Icons.Moon, desc: 'Eat a villager each night. Don\'t get caught.' },
+          DOCTOR: { id: 'doctor', name: 'Doctor', team: 'villagers', icon: Icons.Heart, desc: 'Protect one person from death each night.' },
+          SEER: { id: 'seer', name: 'Seer', team: 'villagers', icon: Icons.Eye, desc: 'See the true role of one player each night.' },
+        };
 
-    return { players, gameLog: arrayUnion(...log), votes: {} };
-  };
+        const PHASES = {
+          LOBBY: 'LOBBY',
+          NIGHT_INTRO: 'NIGHT_INTRO',
+          NIGHT_WEREWOLF: 'NIGHT_WEREWOLF',
+          NIGHT_DOCTOR: 'NIGHT_DOCTOR',
+          NIGHT_SEER: 'NIGHT_SEER',
+          NIGHT_RESOLVE: 'NIGHT_RESOLVE',
+          DAY_REVEAL: 'DAY_REVEAL',
+          DAY_DISCUSSION: 'DAY_DISCUSSION',
+          DAY_VOTE: 'DAY_VOTE',
+          DAY_RESULTS: 'DAY_RESULTS',
+          GAME_OVER: 'GAME_OVER'
+        };
 
-  const checkWinCondition = (players) => {
-    const wolves = players.filter(p => p.role === 'werewolf' && p.isAlive);
-    const villagers = players.filter(p => p.role !== 'werewolf' && p.isAlive);
+        const generateRoomCode = () => Math.random().toString(36).substring(2, 6).toUpperCase();
+        const shuffleArray = (array) => array.sort(() => Math.random() - 0.5);
 
-    if (wolves.length === 0) return 'VILLAGERS';
-    if (wolves.length >= villagers.length) return 'WEREWOLVES';
-    return null;
-  };
+        function App() {
+          const [user, setUser] = useState(null);
+          const [mode, setMode] = useState('landing'); 
+          const [roomCode, setRoomCode] = useState('');
+          const [playerName, setPlayerName] = useState('');
+          const [roomData, setRoomData] = useState(null);
+          const [error, setError] = useState('');
+          const [loading, setLoading] = useState(false);
 
-  /* -------------------------- PLAYER LOGIC -------------------------- */
+          useEffect(() => {
+            const initAuth = async () => {
+              if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await signInWithCustomToken(auth, __initial_auth_token);
+              } else {
+                await signInAnonymously(auth);
+              }
+            };
+            initAuth();
+            const unsubscribe = onAuthStateChanged(auth, setUser);
+            return () => unsubscribe();
+          }, []);
 
-  const joinGame = async () => {
-    if (!user || !roomCode || !playerName) {
-      setError("Please enter a name and room code.");
-      return;
-    }
-    
-    setLoading(true);
-    const codeUpper = roomCode.toUpperCase();
-    const roomRef = doc(db, 'artifacts', appId, 'public', 'data', `rooms/${codeUpper}`);
-    const snap = await getDoc(roomRef);
+          useEffect(() => {
+            if (!user || !roomCode) return;
+            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', `rooms/${roomCode}`);
+            const unsubscribe = onSnapshot(roomRef, (snapshot) => {
+              if (snapshot.exists()) {
+                setRoomData(snapshot.data());
+              } else {
+                if (mode !== 'landing') {
+                  setError('Room closed or does not exist.');
+                  setMode('landing');
+                  setRoomData(null);
+                }
+              }
+            }, (err) => {
+              console.error(err);
+              setError("Connection lost. Reconnecting...");
+            });
+            return () => unsubscribe();
+          }, [user, roomCode, mode]);
 
-    if (!snap.exists()) {
-      setError("Room not found.");
-      setLoading(false);
-      return;
-    }
+          // --- HOST ACTIONS ---
 
-    const roomData = snap.data();
-    if (roomData.status !== PHASES.LOBBY) {
-      // Allow rejoin if player ID matches
-      const existingPlayer = roomData.players.find(p => p.id === user.uid);
-      if (!existingPlayer) {
-        setError("Game already in progress.");
-        setLoading(false);
-        return;
-      }
-    } else {
-       // Join as new
-       const existingPlayer = roomData.players.find(p => p.id === user.uid);
-       if (!existingPlayer) {
-          await updateDoc(roomRef, {
-            players: arrayUnion({
-              id: user.uid,
-              name: playerName,
-              isAlive: true,
-              role: null
-            })
-          });
-       }
-    }
-
-    setRoomCode(codeUpper);
-    setMode('player');
-    setLoading(false);
-  };
-
-  const submitAction = async (targetId) => {
-    if (!roomData || !user) return;
-    const me = roomData.players.find(p => p.id === user.uid);
-    if (!me || !me.isAlive) return;
-
-    // Night Actions
-    if ([PHASES.NIGHT_WEREWOLF, PHASES.NIGHT_DOCTOR, PHASES.NIGHT_SEER].includes(roomData.status)) {
-       // actions: { [userId]: { role: 'werewolf', targetId } }
-       const newActions = { ...roomData.actions, [user.uid]: { role: me.role, targetId } };
-       await updateRoom({ actions: newActions });
-    }
-
-    // Day Vote
-    if (roomData.status === PHASES.DAY_VOTE) {
-      const newVotes = { ...roomData.votes, [user.uid]: targetId };
-      await updateRoom({ votes: newVotes });
-    }
-  };
-
-
-  /* -------------------------------------------------------------------------- */
-  /* RENDERERS                                   */
-  /* -------------------------------------------------------------------------- */
-
-  // Global Loading State for non-landing modes
-  if (loading && mode !== 'landing') {
-    return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <Loader className="w-10 h-10 text-red-500 animate-spin" />
-      </div>
-    );
-  }
-
-  if (mode === 'landing') {
-    return (
-      <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center p-4 font-sans">
-        <div className="max-w-md w-full bg-slate-800 p-8 rounded-2xl shadow-2xl border border-slate-700">
-          <div className="text-center mb-8">
-            <Moon className="w-16 h-16 mx-auto text-yellow-400 mb-4" />
-            <h1 className="text-4xl font-bold tracking-wider text-red-500 font-serif">WEREWOLF</h1>
-            <p className="text-slate-400 mt-2">Party Game Companion</p>
-          </div>
-
-          {error && (
-            <div className="bg-red-900/50 text-red-200 p-3 rounded-lg mb-6 text-sm text-center">
-              {error}
-            </div>
-          )}
-
-          <div className="space-y-6">
-            <button 
-              onClick={createGame}
-              disabled={loading}
-              className="w-full py-4 bg-red-600 hover:bg-red-700 active:bg-red-800 rounded-xl font-bold text-lg transition-all flex items-center justify-center gap-2"
-            >
-              <Crown className="w-5 h-5" />
-              {loading ? 'Creating...' : 'Host New Game'}
-            </button>
+          const createGame = async () => {
+            if (!user) return;
+            setLoading(true);
+            const code = generateRoomCode();
+            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', `rooms/${code}`);
             
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-slate-600"></div>
+            await setDoc(roomRef, {
+              hostId: user.uid,
+              code,
+              status: PHASES.LOBBY,
+              players: [],
+              gameLog: [],
+              votes: {},
+              actions: {},
+              settings: { roles: ['villager', 'werewolf', 'doctor', 'seer'] },
+              currentRound: 0,
+              winner: null
+            });
+
+            setRoomCode(code);
+            setMode('host');
+            setLoading(false);
+          };
+
+          const startGame = async () => {
+            if (!roomData) return;
+            const players = [...roomData.players];
+            const playerCount = players.length;
+            
+            let werewolfCount = Math.max(1, Math.floor(playerCount / 4));
+            if (playerCount < 4) werewolfCount = 1;
+
+            const roleDeck = [];
+            for (let i = 0; i < werewolfCount; i++) roleDeck.push(ROLES.WEREWOLF.id);
+            if (playerCount > 2) roleDeck.push(ROLES.SEER.id);
+            if (playerCount > 3) roleDeck.push(ROLES.DOCTOR.id);
+            
+            while (roleDeck.length < playerCount) {
+              roleDeck.push(ROLES.VILLAGER.id);
+            }
+
+            const shuffledRoles = shuffleArray(roleDeck);
+            
+            const newPlayers = players.map((p, idx) => ({
+              ...p,
+              role: shuffledRoles[idx],
+              isAlive: true,
+              id: p.id
+            }));
+
+            await updateRoom({
+              status: PHASES.NIGHT_INTRO,
+              players: newPlayers,
+              currentRound: 1,
+              gameLog: ['The game has begun!'],
+              actions: {},
+              votes: {}
+            });
+          };
+
+          const nextPhase = async () => {
+            if (!roomData) return;
+            const { status, currentRound, actions, players } = roomData;
+            let nextStatus = status;
+            let updates = {};
+
+            switch (status) {
+              case PHASES.NIGHT_INTRO: nextStatus = PHASES.NIGHT_WEREWOLF; break;
+              case PHASES.NIGHT_WEREWOLF: nextStatus = PHASES.NIGHT_DOCTOR; break;
+              case PHASES.NIGHT_DOCTOR: nextStatus = PHASES.NIGHT_SEER; break;
+              case PHASES.NIGHT_SEER:
+                const result = resolveNight(players, actions);
+                const nightWinner = checkWinCondition(result.players);
+                if (nightWinner) {
+                  nextStatus = PHASES.GAME_OVER;
+                  updates = { ...result, winner: nightWinner };
+                } else {
+                  nextStatus = PHASES.DAY_REVEAL;
+                  updates = { ...result };
+                }
+                break;
+              case PHASES.DAY_REVEAL: nextStatus = PHASES.DAY_DISCUSSION; break;
+              case PHASES.DAY_DISCUSSION:
+                nextStatus = PHASES.DAY_VOTE;
+                updates = { votes: {} };
+                break;
+              case PHASES.DAY_VOTE:
+                nextStatus = PHASES.DAY_RESULTS;
+                const voteResult = resolveDayVote(players, roomData.votes);
+                updates = { ...voteResult };
+                break;
+              case PHASES.DAY_RESULTS:
+                const dayPlayers = updates.players || players; 
+                const winCheck = checkWinCondition(dayPlayers);
+                if (winCheck) {
+                  nextStatus = PHASES.GAME_OVER;
+                  updates = { ...updates, winner: winCheck };
+                } else {
+                  nextStatus = PHASES.NIGHT_INTRO;
+                  updates = { ...updates, currentRound: currentRound + 1, actions: {}, votes: {} };
+                }
+                break;
+              case PHASES.GAME_OVER:
+                 nextStatus = PHASES.LOBBY;
+                 updates = { 
+                   players: players.map(p => ({ id: p.id, name: p.name, isAlive: true, role: null })),
+                   gameLog: [],
+                   currentRound: 0,
+                   winner: null
+                 };
+                 break;
+            }
+            await updateRoom({ status: nextStatus, ...updates });
+          };
+
+          const updateRoom = async (data) => {
+            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', `rooms/${roomCode}`);
+            await updateDoc(roomRef, data);
+          };
+
+          const resolveNight = (currentPlayers, actions) => {
+            let log = [];
+            let players = currentPlayers.map(p => ({...p})); 
+            
+            const wolfAction = Object.values(actions).find(a => a.role === 'werewolf');
+            let targetId = wolfAction ? wolfAction.targetId : null;
+
+            const doctorAction = Object.values(actions).find(a => a.role === 'doctor');
+            let savedId = doctorAction ? doctorAction.targetId : null;
+
+            if (targetId) {
+              if (targetId === savedId) {
+                log.push("The werewolves attacked someone, but they were saved!");
+              } else {
+                const victimIndex = players.findIndex(p => p.id === targetId);
+                if (victimIndex !== -1) {
+                  players[victimIndex] = { ...players[victimIndex], isAlive: false };
+                  log.push(`${players[victimIndex].name} was killed during the night.`);
+                }
+              }
+            } else {
+              log.push("The night was quiet. No one was attacked.");
+            }
+            return { players, gameLog: arrayUnion(...log), actions: {} };
+          };
+
+          const resolveDayVote = (currentPlayers, votes) => {
+            const voteCounts = {};
+            Object.values(votes).forEach(targetId => {
+              voteCounts[targetId] = (voteCounts[targetId] || 0) + 1;
+            });
+
+            let maxVotes = 0;
+            let targetIds = [];
+
+            Object.entries(voteCounts).forEach(([id, count]) => {
+              if (count > maxVotes) {
+                maxVotes = count;
+                targetIds = [id];
+              } else if (count === maxVotes) {
+                targetIds.push(id);
+              }
+            });
+
+            let players = currentPlayers.map(p => ({...p}));
+            let log = [];
+
+            if (targetIds.length === 1) {
+              const victimId = targetIds[0];
+              const victimIndex = players.findIndex(p => p.id === victimId);
+              if (victimIndex !== -1) {
+                players[victimIndex] = { ...players[victimIndex], isAlive: false };
+                log.push(`The village voted to execute ${players[victimIndex].name}.`);
+                log.push(`${players[victimIndex].name} was a ${ROLES[players[victimIndex].role.toUpperCase()]?.name}.`);
+              }
+            } else {
+              log.push("The vote was tied. No one was executed.");
+            }
+            return { players, gameLog: arrayUnion(...log), votes: {} };
+          };
+
+          const checkWinCondition = (players) => {
+            const wolves = players.filter(p => p.role === 'werewolf' && p.isAlive);
+            const villagers = players.filter(p => p.role !== 'werewolf' && p.isAlive);
+            if (wolves.length === 0) return 'VILLAGERS';
+            if (wolves.length >= villagers.length) return 'WEREWOLVES';
+            return null;
+          };
+
+          // --- PLAYER ACTIONS ---
+
+          const joinGame = async () => {
+            if (!user || !roomCode || !playerName) {
+              setError("Please enter a name and room code.");
+              return;
+            }
+            setLoading(true);
+            const codeUpper = roomCode.toUpperCase();
+            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', `rooms/${codeUpper}`);
+            const snap = await getDoc(roomRef);
+
+            if (!snap.exists()) {
+              setError("Room not found.");
+              setLoading(false);
+              return;
+            }
+
+            const roomData = snap.data();
+            if (roomData.status !== PHASES.LOBBY) {
+              const existingPlayer = roomData.players.find(p => p.id === user.uid);
+              if (!existingPlayer) {
+                setError("Game already in progress.");
+                setLoading(false);
+                return;
+              }
+            } else {
+               const existingPlayer = roomData.players.find(p => p.id === user.uid);
+               if (!existingPlayer) {
+                  await updateDoc(roomRef, {
+                    players: arrayUnion({
+                      id: user.uid,
+                      name: playerName,
+                      isAlive: true,
+                      role: null
+                    })
+                  });
+               }
+            }
+            setRoomCode(codeUpper);
+            setMode('player');
+            setLoading(false);
+          };
+
+          const submitAction = async (targetId) => {
+            if (!roomData || !user) return;
+            const me = roomData.players.find(p => p.id === user.uid);
+            if (!me || !me.isAlive) return;
+
+            if ([PHASES.NIGHT_WEREWOLF, PHASES.NIGHT_DOCTOR, PHASES.NIGHT_SEER].includes(roomData.status)) {
+               const newActions = { ...roomData.actions, [user.uid]: { role: me.role, targetId } };
+               await updateRoom({ actions: newActions });
+            }
+            if (roomData.status === PHASES.DAY_VOTE) {
+              const newVotes = { ...roomData.votes, [user.uid]: targetId };
+              await updateRoom({ votes: newVotes });
+            }
+          };
+
+          // --- RENDER ---
+
+          if (loading && mode !== 'landing') {
+            return (
+              <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+                <Icons.Loader className="w-10 h-10 text-red-500 animate-spin" />
               </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-slate-800 text-slate-500">Or Join Existing</span>
-              </div>
-            </div>
+            );
+          }
 
-            <div className="space-y-3">
-              <input 
-                type="text" 
-                placeholder="Your Name"
-                className="w-full bg-slate-900 border border-slate-600 p-4 rounded-xl text-center focus:outline-none focus:border-red-500 transition-colors"
-                value={playerName}
-                onChange={e => setPlayerName(e.target.value)}
-              />
-              <input 
-                type="text" 
-                placeholder="Room Code (4 Letters)"
-                className="w-full bg-slate-900 border border-slate-600 p-4 rounded-xl text-center uppercase tracking-widest font-mono text-xl focus:outline-none focus:border-red-500 transition-colors"
-                maxLength={4}
-                value={roomCode}
-                onChange={e => setRoomCode(e.target.value.toUpperCase())}
-              />
-              <button 
-                onClick={joinGame}
-                disabled={loading}
-                className="w-full py-4 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-lg transition-all"
-              >
-                {loading ? 'Joining...' : 'Join Game'}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+          if (mode === 'landing') {
+            return (
+              <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center p-4 font-sans">
+                <div className="max-w-md w-full bg-slate-800 p-8 rounded-2xl shadow-2xl border border-slate-700">
+                  <div className="text-center mb-8">
+                    <div className="flex justify-center mb-4"><Icons.Moon className="w-16 h-16 text-yellow-400" /></div>
+                    <h1 className="text-4xl font-bold tracking-wider text-red-500 font-serif">WEREWOLF</h1>
+                    <p className="text-slate-400 mt-2">Party Game Companion</p>
+                  </div>
 
-  // --- HOST VIEW ---
-  if (mode === 'host') {
-    if (!roomData) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-white"><Loader className="animate-spin mr-2"/> Loading Room...</div>;
+                  {error && <div className="bg-red-900/50 text-red-200 p-3 rounded-lg mb-6 text-sm text-center">{error}</div>}
 
-    const playerCount = roomData.players.length;
-    const activePlayers = roomData.players.filter(p => p.isAlive).length;
-    
-    return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
-        {/* Header */}
-        <header className="bg-slate-900 p-4 shadow-lg border-b border-slate-800 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <Moon className="w-8 h-8 text-yellow-400" />
-            <h1 className="text-xl font-bold text-red-500 tracking-wider">WEREWOLF <span className="text-slate-500 text-sm ml-2">MONITOR</span></h1>
-          </div>
-          <div className="flex items-center gap-6">
-            <div className="text-right">
-              <div className="text-xs text-slate-400 uppercase tracking-widest">Room Code</div>
-              <div className="text-3xl font-mono font-bold text-white tracking-widest">{roomData.code}</div>
-            </div>
-          </div>
-        </header>
-
-        {/* Main Content */}
-        <main className="flex-1 flex flex-col p-8 items-center justify-center">
-          
-          {roomData.status === PHASES.LOBBY && (
-            <div className="w-full max-w-4xl text-center space-y-8">
-              <div className="space-y-2">
-                <h2 className="text-5xl font-bold text-white">Waiting for Players...</h2>
-                <p className="text-2xl text-slate-400">Join at <span className="text-red-400 font-mono">this-site</span> with code <span className="text-yellow-400 font-bold font-mono text-3xl">{roomData.code}</span></p>
-              </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8">
-                {roomData.players.map((p, i) => (
-                  <div key={i} className="bg-slate-800 p-4 rounded-xl border border-slate-700 flex items-center gap-3 animate-fade-in">
-                    <div className="w-10 h-10 bg-slate-700 rounded-full flex items-center justify-center text-lg font-bold">
-                      {p.name[0].toUpperCase()}
+                  <div className="space-y-6">
+                    <button onClick={createGame} disabled={loading} className="w-full py-4 bg-red-600 hover:bg-red-700 rounded-xl font-bold text-lg flex items-center justify-center gap-2">
+                      <Icons.Crown className="w-5 h-5" />
+                      {loading ? 'Creating...' : 'Host New Game'}
+                    </button>
+                    
+                    <div className="relative">
+                      <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-600"></div></div>
+                      <div className="relative flex justify-center text-sm"><span className="px-2 bg-slate-800 text-slate-500">Or Join Existing</span></div>
                     </div>
-                    <span className="font-medium truncate">{p.name}</span>
-                  </div>
-                ))}
-              </div>
 
-              <div className="pt-8 border-t border-slate-800 mt-8">
-                <div className="text-slate-500 mb-4">{playerCount} Players joined (Need 3+)</div>
-                <button 
-                  onClick={startGame}
-                  disabled={playerCount < 3}
-                  className={`px-12 py-4 rounded-full text-2xl font-bold transition-all transform hover:scale-105 ${playerCount >= 3 ? 'bg-red-600 hover:bg-red-500 text-white shadow-red-900/20 shadow-xl' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}
-                >
-                  Start Game
-                </button>
-              </div>
-            </div>
-          )}
-
-          {roomData.status !== PHASES.LOBBY && (
-            <div className="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-3 gap-8 h-full">
-              
-              {/* Left: Game Status / Narrative */}
-              <div className="lg:col-span-2 bg-slate-900 rounded-3xl p-8 border border-slate-800 flex flex-col justify-center items-center text-center shadow-2xl relative overflow-hidden">
-                {/* Background Decor */}
-                <div className={`absolute inset-0 opacity-10 pointer-events-none transition-colors duration-1000 ${roomData.status.includes('NIGHT') ? 'bg-blue-900' : 'bg-orange-500'}`}></div>
-                
-                <div className="relative z-10 space-y-6">
-                  {/* Icon */}
-                  <div className="flex justify-center mb-6">
-                    {roomData.status.includes('NIGHT') ? (
-                      <Moon className="w-32 h-32 text-blue-400 animate-pulse" />
-                    ) : roomData.status === PHASES.GAME_OVER ? (
-                      <Crown className="w-32 h-32 text-yellow-400" />
-                    ) : (
-                      <Sun className="w-32 h-32 text-orange-400 animate-spin-slow" />
-                    )}
-                  </div>
-
-                  {/* Text */}
-                  <h2 className="text-5xl font-bold text-white mb-4 leading-tight">
-                    {roomData.status === PHASES.NIGHT_INTRO && "Night falls on the village..."}
-                    {roomData.status === PHASES.NIGHT_WEREWOLF && "Werewolves, wake up..."}
-                    {roomData.status === PHASES.NIGHT_DOCTOR && "Doctor, wake up..."}
-                    {roomData.status === PHASES.NIGHT_SEER && "Seer, wake up..."}
-                    {roomData.status === PHASES.DAY_REVEAL && "The sun rises!"}
-                    {roomData.status === PHASES.DAY_DISCUSSION && "Discuss among yourselves."}
-                    {roomData.status === PHASES.DAY_VOTE && "Vote to eliminate!"}
-                    {roomData.status === PHASES.DAY_RESULTS && "The village has spoken."}
-                    {roomData.status === PHASES.GAME_OVER && (
-                      <span className={roomData.winner === 'WEREWOLVES' ? 'text-red-500' : 'text-green-500'}>
-                        {roomData.winner} WIN!
-                      </span>
-                    )}
-                  </h2>
-
-                  {/* Instruction Subtext */}
-                  <p className="text-2xl text-slate-400 max-w-2xl mx-auto">
-                    {roomData.status === PHASES.NIGHT_INTRO && "Everyone, close your eyes."}
-                    {roomData.status === PHASES.NIGHT_WEREWOLF && "Choose a victim on your device."}
-                    {roomData.status === PHASES.NIGHT_DOCTOR && "Choose someone to save."}
-                    {roomData.status === PHASES.NIGHT_SEER && "Choose someone to inspect."}
-                    {roomData.status === PHASES.DAY_REVEAL && (
-                       roomData.gameLog[roomData.gameLog.length - 1] // Show last log entry
-                    )}
-                    {roomData.status === PHASES.DAY_DISCUSSION && "Who is acting suspicious?"}
-                    {roomData.status === PHASES.DAY_VOTE && "Cast your vote on your device."}
-                    {roomData.status === PHASES.DAY_RESULTS && (
-                       roomData.gameLog[roomData.gameLog.length - 1]
-                    )}
-                  </p>
-                  
-                  {/* Action Button */}
-                  <div className="pt-8">
-                     <button 
-                       onClick={nextPhase}
-                       className="bg-slate-100 hover:bg-white text-slate-900 px-8 py-3 rounded-full font-bold text-xl shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center gap-2 mx-auto"
-                     >
-                        <Play className="w-5 h-5" />
-                        {roomData.status === PHASES.GAME_OVER ? 'Return to Lobby' : 'Next Phase'}
-                     </button>
+                    <div className="space-y-3">
+                      <input type="text" placeholder="Your Name" className="w-full bg-slate-900 border border-slate-600 p-4 rounded-xl text-center focus:outline-none focus:border-red-500 transition-colors" value={playerName} onChange={e => setPlayerName(e.target.value)} />
+                      <input type="text" placeholder="Room Code (4 Letters)" className="w-full bg-slate-900 border border-slate-600 p-4 rounded-xl text-center uppercase tracking-widest font-mono text-xl focus:outline-none focus:border-red-500 transition-colors" maxLength={4} value={roomCode} onChange={e => setRoomCode(e.target.value.toUpperCase())} />
+                      <button onClick={joinGame} disabled={loading} className="w-full py-4 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-lg">
+                        {loading ? 'Joining...' : 'Join Game'}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
+            );
+          }
 
-              {/* Right: Player List & Stats */}
-              <div className="bg-slate-800 rounded-3xl p-6 border border-slate-700 flex flex-col">
-                <h3 className="text-xl font-bold text-slate-300 mb-4 flex justify-between">
-                  <span>Survivors</span>
-                  <span className="bg-slate-700 px-2 py-1 rounded text-sm text-white">{activePlayers}/{playerCount}</span>
-                </h3>
-                
-                <div className="flex-1 overflow-y-auto space-y-2 pr-2">
-                  {roomData.players.map(p => (
-                    <div key={p.id} className={`p-3 rounded-lg flex items-center justify-between ${p.isAlive ? 'bg-slate-700' : 'bg-slate-900 opacity-50'}`}>
-                      <div className="flex items-center gap-3">
-                         <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${p.isAlive ? 'bg-slate-600' : 'bg-red-900 text-red-300'}`}>
-                           {p.name[0]}
-                         </div>
-                         <span className={p.isAlive ? 'text-white' : 'text-red-400 line-through'}>{p.name}</span>
+          if (mode === 'host') {
+            if (!roomData) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-white"><Icons.Loader className="animate-spin mr-2"/> Loading Room...</div>;
+            const playerCount = roomData.players.length;
+            const activePlayers = roomData.players.filter(p => p.isAlive).length;
+            
+            return (
+              <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
+                <header className="bg-slate-900 p-4 shadow-lg border-b border-slate-800 flex justify-between items-center">
+                  <div className="flex items-center gap-3">
+                    <Icons.Moon className="w-8 h-8 text-yellow-400" />
+                    <h1 className="text-xl font-bold text-red-500 tracking-wider">WEREWOLF <span className="text-slate-500 text-sm ml-2">MONITOR</span></h1>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xs text-slate-400 uppercase tracking-widest">Room Code</div>
+                    <div className="text-3xl font-mono font-bold text-white tracking-widest">{roomData.code}</div>
+                  </div>
+                </header>
+
+                <main className="flex-1 flex flex-col p-8 items-center justify-center">
+                  {roomData.status === PHASES.LOBBY && (
+                    <div className="w-full max-w-4xl text-center space-y-8">
+                      <div className="space-y-2">
+                        <h2 className="text-5xl font-bold text-white">Waiting for Players...</h2>
+                        <p className="text-2xl text-slate-400">Join via mobile with code <span className="text-yellow-400 font-bold font-mono text-3xl">{roomData.code}</span></p>
                       </div>
-                      {!p.isAlive && <Skull className="w-4 h-4 text-red-500" />}
-                      {/* Host Secrets: Show roles if dead or game over */}
-                      {(mode === 'host' && (!p.isAlive || roomData.status === PHASES.GAME_OVER)) && (
-                         <span className="text-xs uppercase bg-slate-950 px-1 rounded text-slate-500">{ROLES[p.role.toUpperCase()]?.name}</span>
-                      )}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8">
+                        {roomData.players.map((p, i) => (
+                          <div key={i} className="bg-slate-800 p-4 rounded-xl border border-slate-700 flex items-center gap-3 animate-fade-in">
+                            <div className="w-10 h-10 bg-slate-700 rounded-full flex items-center justify-center text-lg font-bold">{p.name[0].toUpperCase()}</div>
+                            <span className="font-medium truncate">{p.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="pt-8 border-t border-slate-800 mt-8">
+                        <div className="text-slate-500 mb-4">{playerCount} Players joined (Need 3+)</div>
+                        <button onClick={startGame} disabled={playerCount < 3} className={`px-12 py-4 rounded-full text-2xl font-bold transition-all transform hover:scale-105 ${playerCount >= 3 ? 'bg-red-600 hover:bg-red-500 text-white shadow-xl' : 'bg-slate-800 text-slate-600 cursor-not-allowed'}`}>Start Game</button>
+                      </div>
                     </div>
-                  ))}
-                </div>
+                  )}
 
-                {/* Status Check for Host */}
-                <div className="mt-4 pt-4 border-t border-slate-700">
-                    <p className="text-xs text-slate-500 uppercase tracking-widest mb-2">Actions Received</p>
-                    <div className="flex gap-2">
-                       {roomData.status === PHASES.NIGHT_WEREWOLF && (
-                          <span className="text-sm text-blue-300">
-                             {Object.values(roomData.actions || {}).filter(a => a.role === 'werewolf').length} Wolves voted
-                          </span>
-                       )}
-                       {roomData.status === PHASES.DAY_VOTE && (
-                          <span className="text-sm text-orange-300">
-                             {Object.keys(roomData.votes || {}).length}/{activePlayers} Voted
-                          </span>
-                       )}
-                    </div>
-                </div>
-              </div>
-
-            </div>
-          )}
-        </main>
-      </div>
-    );
-  }
-
-  // --- PLAYER VIEW ---
-  if (mode === 'player') {
-    if (!roomData) return <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white"><Loader className="animate-spin mr-2"/> Connecting...</div>;
-
-    const me = roomData.players.find(p => p.id === user.uid);
-    if (!me) return <div className="p-8 text-white">Error: Player not found</div>;
-
-    const myRole = ROLES[me.role?.toUpperCase()] || {};
-    const isNight = roomData.status.includes('NIGHT');
-    const isMyTurn = (roomData.status === PHASES.NIGHT_WEREWOLF && me.role === 'werewolf') ||
-                     (roomData.status === PHASES.NIGHT_DOCTOR && me.role === 'doctor') ||
-                     (roomData.status === PHASES.NIGHT_SEER && me.role === 'seer') ||
-                     (roomData.status === PHASES.DAY_VOTE && me.isAlive);
-    
-    // Seer Result Logic
-    const seerAction = roomData.actions?.[user.uid];
-    const seerTargetId = seerAction?.targetId;
-    const seerTargetPlayer = seerTargetId ? roomData.players.find(p => p.id === seerTargetId) : null;
-
-    return (
-      <div className="min-h-screen bg-slate-900 text-slate-100 font-sans flex flex-col">
-        {/* Mobile Header */}
-        <div className="p-4 bg-slate-800 flex justify-between items-center shadow-md">
-           <div className="font-bold text-lg">{me.name}</div>
-           <div className="text-xs text-slate-400 bg-slate-900 px-2 py-1 rounded">Room: {roomData.code}</div>
-        </div>
-
-        <main className="flex-1 p-4 flex flex-col">
-          
-          {/* LOBBY STATE */}
-          {roomData.status === PHASES.LOBBY && (
-             <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6">
-               <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center animate-pulse">
-                 <Users className="w-10 h-10 text-slate-500" />
-               </div>
-               <h2 className="text-2xl font-bold">Waiting for Host...</h2>
-               <p className="text-slate-400">Look at the TV screen for the game code and players.</p>
-             </div>
-          )}
-
-          {/* GAME STATE */}
-          {roomData.status !== PHASES.LOBBY && (
-            <>
-              {/* Role Card (Top) */}
-              <div className={`p-6 rounded-2xl mb-6 text-center shadow-xl border-2 ${!me.isAlive ? 'bg-red-950 border-red-900' : isNight ? 'bg-indigo-950 border-indigo-900' : 'bg-slate-800 border-slate-700'}`}>
-                {!me.isAlive ? (
-                   <>
-                     <Skull className="w-12 h-12 mx-auto text-red-500 mb-2" />
-                     <h2 className="text-2xl font-bold text-red-500">YOU ARE DEAD</h2>
-                     <p className="text-red-300 text-sm">You cannot speak or vote.</p>
-                   </>
-                ) : (
-                   <>
-                      {myRole.icon && <myRole.icon className="w-12 h-12 mx-auto text-yellow-500 mb-2" />}
-                      <div className="text-xs uppercase tracking-widest text-slate-400 mb-1">Your Role</div>
-                      <h2 className="text-3xl font-bold text-white mb-2 font-serif">{myRole.name}</h2>
-                      <p className="text-sm text-slate-300 leading-relaxed">{myRole.desc}</p>
-                   </>
-                )}
-              </div>
-
-              {/* Action Area */}
-              <div className="flex-1">
-                {!me.isAlive ? (
-                  <div className="text-center text-slate-500 mt-10">
-                    Watch the game unfold on the main screen.
-                  </div>
-                ) : (
-                  <>
-                    {/* Active Turn UI */}
-                    {isMyTurn ? (
-                      <div className="animate-fade-in-up">
-                        <h3 className="text-xl font-bold text-center mb-4 text-green-400">
-                          {roomData.status === PHASES.DAY_VOTE ? 'Vote to Eliminate' : 'Choose Target'}
-                        </h3>
-                        
-                        <div className="grid grid-cols-2 gap-3">
-                           {roomData.players
-                             .filter(p => p.isAlive && p.id !== user.uid) // Can't select self usually (Doc can, but simplifying)
-                             .map(p => {
-                               const isSelected = 
-                                  (roomData.actions?.[user.uid]?.targetId === p.id) || 
-                                  (roomData.votes?.[user.uid] === p.id);
-                               
-                               return (
-                                 <button
-                                   key={p.id}
-                                   onClick={() => submitAction(p.id)}
-                                   className={`p-4 rounded-xl font-bold text-lg transition-all ${isSelected ? 'bg-green-600 text-white ring-2 ring-green-400' : 'bg-slate-800 hover:bg-slate-700'}`}
-                                 >
-                                   {p.name}
-                                 </button>
-                               )
-                           })}
-                           
-                           {/* Doctor Self-Heal Option if needed, skipping for simplicity of generic list */}
+                  {roomData.status !== PHASES.LOBBY && (
+                    <div className="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-3 gap-8 h-full">
+                      <div className="lg:col-span-2 bg-slate-900 rounded-3xl p-8 border border-slate-800 flex flex-col justify-center items-center text-center shadow-2xl relative overflow-hidden">
+                        <div className={`absolute inset-0 opacity-10 pointer-events-none transition-colors duration-1000 ${roomData.status.includes('NIGHT') ? 'bg-blue-900' : 'bg-orange-500'}`}></div>
+                        <div className="relative z-10 space-y-6">
+                          <div className="flex justify-center mb-6">
+                            {roomData.status.includes('NIGHT') ? <Icons.Moon className="w-32 h-32 text-blue-400 animate-pulse" /> : roomData.status === PHASES.GAME_OVER ? <Icons.Crown className="w-32 h-32 text-yellow-400" /> : <Icons.Sun className="w-32 h-32 text-orange-400 animate-spin-slow" />}
+                          </div>
+                          <h2 className="text-5xl font-bold text-white mb-4 leading-tight">
+                            {roomData.status === PHASES.NIGHT_INTRO && "Night falls on the village..."}
+                            {roomData.status === PHASES.NIGHT_WEREWOLF && "Werewolves, wake up..."}
+                            {roomData.status === PHASES.NIGHT_DOCTOR && "Doctor, wake up..."}
+                            {roomData.status === PHASES.NIGHT_SEER && "Seer, wake up..."}
+                            {roomData.status === PHASES.DAY_REVEAL && "The sun rises!"}
+                            {roomData.status === PHASES.DAY_DISCUSSION && "Discuss among yourselves."}
+                            {roomData.status === PHASES.DAY_VOTE && "Vote to eliminate!"}
+                            {roomData.status === PHASES.DAY_RESULTS && "The village has spoken."}
+                            {roomData.status === PHASES.GAME_OVER && <span className={roomData.winner === 'WEREWOLVES' ? 'text-red-500' : 'text-green-500'}>{roomData.winner} WIN!</span>}
+                          </h2>
+                          <p className="text-2xl text-slate-400 max-w-2xl mx-auto">
+                            {roomData.status === PHASES.NIGHT_INTRO && "Everyone, close your eyes."}
+                            {roomData.status === PHASES.NIGHT_WEREWOLF && "Choose a victim on your device."}
+                            {roomData.status === PHASES.NIGHT_DOCTOR && "Choose someone to save."}
+                            {roomData.status === PHASES.NIGHT_SEER && "Choose someone to inspect."}
+                            {roomData.status === PHASES.DAY_REVEAL && roomData.gameLog[roomData.gameLog.length - 1]}
+                            {roomData.status === PHASES.DAY_DISCUSSION && "Who is acting suspicious?"}
+                            {roomData.status === PHASES.DAY_VOTE && "Cast your vote on your device."}
+                            {roomData.status === PHASES.DAY_RESULTS && roomData.gameLog[roomData.gameLog.length - 1]}
+                          </p>
+                          <div className="pt-8">
+                             <button onClick={nextPhase} className="bg-slate-100 hover:bg-white text-slate-900 px-8 py-3 rounded-full font-bold text-xl shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center gap-2 mx-auto">
+                                <Icons.Play className="w-5 h-5" />
+                                {roomData.status === PHASES.GAME_OVER ? 'Return to Lobby' : 'Next Phase'}
+                             </button>
+                          </div>
                         </div>
                       </div>
-                    ) : (
-                      /* Idle State */
-                      <div className="text-center space-y-4 mt-8">
-                         {isNight ? (
-                           <>
-                             <Moon className="w-16 h-16 mx-auto text-blue-900 opacity-50" />
-                             <p className="text-xl text-blue-200">Go to sleep...</p>
-                             <p className="text-sm text-slate-500">Wait for the narrator.</p>
-                           </>
-                         ) : (
-                           <>
-                              <Sun className="w-16 h-16 mx-auto text-orange-900 opacity-50" />
-                              <p className="text-xl text-orange-200">Day Time</p>
-                              <p className="text-sm text-slate-500">Check the main screen.</p>
-                           </>
-                         )}
+
+                      <div className="bg-slate-800 rounded-3xl p-6 border border-slate-700 flex flex-col">
+                        <h3 className="text-xl font-bold text-slate-300 mb-4 flex justify-between">
+                          <span>Survivors</span>
+                          <span className="bg-slate-700 px-2 py-1 rounded text-sm text-white">{activePlayers}/{playerCount}</span>
+                        </h3>
+                        <div className="flex-1 overflow-y-auto space-y-2 pr-2">
+                          {roomData.players.map(p => (
+                            <div key={p.id} className={`p-3 rounded-lg flex items-center justify-between ${p.isAlive ? 'bg-slate-700' : 'bg-slate-900 opacity-50'}`}>
+                              <div className="flex items-center gap-3">
+                                 <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${p.isAlive ? 'bg-slate-600' : 'bg-red-900 text-red-300'}`}>{p.name[0]}</div>
+                                 <span className={p.isAlive ? 'text-white' : 'text-red-400 line-through'}>{p.name}</span>
+                              </div>
+                              {!p.isAlive && <Icons.Skull className="w-4 h-4 text-red-500" />}
+                              {(!p.isAlive || roomData.status === PHASES.GAME_OVER) && <span className="text-xs uppercase bg-slate-950 px-1 rounded text-slate-500">{ROLES[p.role.toUpperCase()]?.name}</span>}
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-4 pt-4 border-t border-slate-700">
+                            <p className="text-xs text-slate-500 uppercase tracking-widest mb-2">Actions Received</p>
+                            <div className="flex gap-2">
+                               {roomData.status === PHASES.NIGHT_WEREWOLF && <span className="text-sm text-blue-300">{Object.values(roomData.actions || {}).filter(a => a.role === 'werewolf').length} Wolves voted</span>}
+                               {roomData.status === PHASES.DAY_VOTE && <span className="text-sm text-orange-300">{Object.keys(roomData.votes || {}).length}/{activePlayers} Voted</span>}
+                            </div>
+                        </div>
                       </div>
-                    )}
-
-                    {/* Seer Result Display */}
-                    {me.role === 'seer' && seerTargetPlayer && (
-                       <div className="mt-6 p-4 bg-purple-900/50 border border-purple-500 rounded-xl text-center">
-                          <Eye className="w-6 h-6 mx-auto text-purple-300 mb-2" />
-                          <p className="text-purple-200">
-                            You inspected <span className="font-bold">{seerTargetPlayer.name}</span>.
-                          </p>
-                          <p className="text-xl font-bold text-white mt-1">
-                             They are {seerTargetPlayer.role === 'werewolf' ? 'A WEREWOLF!' : 'a villager.'}
-                          </p>
-                       </div>
-                    )}
-                  </>
-                )}
+                    </div>
+                  )}
+                </main>
               </div>
-            </>
-          )}
+            );
+          }
 
-        </main>
-      </div>
-    );
-  }
+          if (mode === 'player') {
+            if (!roomData) return <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white"><Icons.Loader className="animate-spin mr-2"/> Connecting...</div>;
+            const me = roomData.players.find(p => p.id === user.uid);
+            if (!me) return <div className="p-8 text-white">Error: Player not found</div>;
+            const myRole = ROLES[me.role?.toUpperCase()] || {};
+            const isNight = roomData.status.includes('NIGHT');
+            const isMyTurn = (roomData.status === PHASES.NIGHT_WEREWOLF && me.role === 'werewolf') ||
+                             (roomData.status === PHASES.NIGHT_DOCTOR && me.role === 'doctor') ||
+                             (roomData.status === PHASES.NIGHT_SEER && me.role === 'seer') ||
+                             (roomData.status === PHASES.DAY_VOTE && me.isAlive);
+            const seerTargetId = roomData.actions?.[user.uid]?.targetId;
+            const seerTargetPlayer = seerTargetId ? roomData.players.find(p => p.id === seerTargetId) : null;
 
-  return null;
-}
+            return (
+              <div className="min-h-screen bg-slate-900 text-slate-100 font-sans flex flex-col">
+                <div className="p-4 bg-slate-800 flex justify-between items-center shadow-md">
+                   <div className="font-bold text-lg">{me.name}</div>
+                   <div className="text-xs text-slate-400 bg-slate-900 px-2 py-1 rounded">Room: {roomData.code}</div>
+                </div>
+
+                <main className="flex-1 p-4 flex flex-col">
+                  {roomData.status === PHASES.LOBBY && (
+                     <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6">
+                       <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center animate-pulse"><Icons.Users className="w-10 h-10 text-slate-500" /></div>
+                       <h2 className="text-2xl font-bold">Waiting for Host...</h2>
+                       <p className="text-slate-400">Look at the TV screen for the game code.</p>
+                     </div>
+                  )}
+
+                  {roomData.status !== PHASES.LOBBY && (
+                    <>
+                      <div className={`p-6 rounded-2xl mb-6 text-center shadow-xl border-2 ${!me.isAlive ? 'bg-red-950 border-red-900' : isNight ? 'bg-indigo-950 border-indigo-900' : 'bg-slate-800 border-slate-700'}`}>
+                        {!me.isAlive ? (
+                           <>
+                             <Icons.Skull className="w-12 h-12 mx-auto text-red-500 mb-2" />
+                             <h2 className="text-2xl font-bold text-red-500">YOU ARE DEAD</h2>
+                             <p className="text-red-300 text-sm">You cannot speak or vote.</p>
+                           </>
+                        ) : (
+                           <>
+                              {myRole.icon && <myRole.icon className="w-12 h-12 mx-auto text-yellow-500 mb-2" />}
+                              <div className="text-xs uppercase tracking-widest text-slate-400 mb-1">Your Role</div>
+                              <h2 className="text-3xl font-bold text-white mb-2 font-serif">{myRole.name}</h2>
+                              <p className="text-sm text-slate-300 leading-relaxed">{myRole.desc}</p>
+                           </>
+                        )}
+                      </div>
+
+                      <div className="flex-1">
+                        {!me.isAlive ? (
+                          <div className="text-center text-slate-500 mt-10">Watch the game unfold on the main screen.</div>
+                        ) : (
+                          <>
+                            {isMyTurn ? (
+                              <div className="animate-fade-in">
+                                <h3 className="text-xl font-bold text-center mb-4 text-green-400">{roomData.status === PHASES.DAY_VOTE ? 'Vote to Eliminate' : 'Choose Target'}</h3>
+                                <div className="grid grid-cols-2 gap-3">
+                                   {roomData.players.filter(p => p.isAlive && p.id !== user.uid).map(p => {
+                                       const isSelected = (roomData.actions?.[user.uid]?.targetId === p.id) || (roomData.votes?.[user.uid] === p.id);
+                                       return (
+                                         <button key={p.id} onClick={() => submitAction(p.id)} className={`p-4 rounded-xl font-bold text-lg transition-all ${isSelected ? 'bg-green-600 text-white ring-2 ring-green-400' : 'bg-slate-800 hover:bg-slate-700'}`}>
+                                           {p.name}
+                                         </button>
+                                       )
+                                   })}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="text-center space-y-4 mt-8">
+                                 {isNight ? (
+                                   <>
+                                     <Icons.Moon className="w-16 h-16 mx-auto text-blue-900 opacity-50" />
+                                     <p className="text-xl text-blue-200">Go to sleep...</p>
+                                   </>
+                                 ) : (
+                                   <>
+                                      <Icons.Sun className="w-16 h-16 mx-auto text-orange-900 opacity-50" />
+                                      <p className="text-xl text-orange-200">Day Time</p>
+                                   </>
+                                 )}
+                              </div>
+                            )}
+                            {me.role === 'seer' && seerTargetPlayer && (
+                               <div className="mt-6 p-4 bg-purple-900/50 border border-purple-500 rounded-xl text-center">
+                                  <Icons.Eye className="w-6 h-6 mx-auto text-purple-300 mb-2" />
+                                  <p className="text-purple-200">You inspected <span className="font-bold">{seerTargetPlayer.name}</span>.</p>
+                                  <p className="text-xl font-bold text-white mt-1">They are {seerTargetPlayer.role === 'werewolf' ? 'A WEREWOLF!' : 'a villager.'}</p>
+                               </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </main>
+              </div>
+            );
+          }
+          return null;
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
