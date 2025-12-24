@@ -607,13 +607,13 @@ function legislationDiscard(index) {
             }
         }
 
-        function renderPlayer() {
+function renderPlayer() {
             if (!localState.players || !localState.players[myId]) return;
             const me = localState.players[myId];
             const amPres = (localState.president === myId);
             const amChan = (localState.chancellor === myId);
 
-            // Role Card
+            // --- ROLE CARD DISPLAY ---
             const roleEl = document.getElementById('my-role-card');
             const roleText = document.getElementById('role-text');
             const roleFlavor = document.getElementById('role-flavor');
@@ -623,25 +623,28 @@ function legislationDiscard(index) {
                 roleText.innerText = me.role;
                 roleEl.className = 'secret-role ' + (me.role === 'LIBERAL' ? 'role-liberal' : 'role-fascist');
                 
-                // Flavor Text
+                // FLAVOR: Thematic Goal Text
                 if (me.role === 'LIBERAL') roleFlavor.innerText = "Sustain the Liberal government. You suspect everyone.";
-                else if (me.role === 'FASCIST') roleFlavor.innerText = "Sabotage the government. Coordinate with your fellow Fascists.";
-                else roleFlavor.innerText = "Seize power. You do not know who the Fascists are.";
+                else if (me.role === 'FASCIST') roleFlavor.innerText = "Sabotage the government. Coordinate to elect Hitler.";
+                else roleFlavor.innerText = "Seize power. If you are elected Chancellor after 3 Fascist policies, you win.";
 
-                // Teammates
+                // MECHANIC: Teammate Awareness
                 const all = Object.values(localState.players);
                 if (me.role === 'FASCIST') {
-                    const others = all.filter(p => p.role === 'FASCIST' || p.role === 'HITLER');
-                    teamInfo.innerText = "FASCISTS: " + others.map(p => `${p.name} (${p.role})`).join(', ');
+                    // Fascists see everyone
+                    const others = all.filter(p => (p.role === 'FASCIST' || p.role === 'HITLER') && p.id !== myId);
+                    teamInfo.innerText = "ALLIES: " + others.map(p => `${p.name} (${p.role})`).join(', ');
                 } else if (me.role === 'HITLER' && all.length <= 6) {
+                    // Hitler sees Fascist only in small games
                     const others = all.filter(p => p.role === 'FASCIST');
-                    teamInfo.innerText = "TEAMMATE: " + others.map(p => p.name).join(', ');
+                    teamInfo.innerText = "YOUR FASCIST: " + others.map(p => p.name).join(', ');
                 } else {
+                    // Liberals and Hitler (in large games) see nothing
                     teamInfo.innerText = "Trust no one.";
                 }
             }
 
-            // Controls
+            // --- CONTROLS & INSTRUCTIONS ---
             const controls = document.getElementById('controls');
             const instCard = document.getElementById('instruction-card');
             const instTitle = document.getElementById('player-instruction-title');
@@ -657,78 +660,86 @@ function legislationDiscard(index) {
                 return;
             }
 
+            // 1. NOMINATION PHASE
             if (localState.state === 'NOMINATION') {
                 if (amPres) {
                     waitMsg.style.display = 'none';
                     instCard.style.display = 'block';
-                    instTitle.innerText = "NOMINATION";
-                    instBody.innerText = "Select a player to nominate as Chancellor Candidate.";
+                    instTitle.innerText = "PRESIDENTIAL CANDIDATE";
+                    instBody.innerText = "You must nominate a Chancellor. Choose carefully.";
+                    
                     Object.values(localState.players).forEach(p => {
                         if (p.id !== myId && p.alive) {
                             controls.innerHTML += `<button class="btn" onclick="nominate('${p.id}')">${p.name}</button>`;
                         }
                     });
                 } else {
-                    waitMsg.innerText = `President ${getName(localState.president)} is deliberating...`;
+                    waitMsg.innerText = `President ${getName(localState.president)} is selecting a Chancellor...`;
                 }
             }
+            // 2. VOTING PHASE
             else if (localState.state === 'VOTING') {
                 if (!localState.votes || !localState.votes[myId]) {
                     waitMsg.style.display = 'none';
                     instCard.style.display = 'block';
-                    instTitle.innerText = "ELECTION";
-                    instBody.innerText = `Vote on the proposed government:\nPres. ${getName(localState.president)} & Chan. ${getName(localState.chancellor)}`;
+                    instTitle.innerText = "ELECTION DAY";
+                    instBody.innerText = `Vote on the proposed government:\nPresident ${getName(localState.president)} & Chancellor ${getName(localState.chancellor)}`;
                     controls.innerHTML = `
                         <button class="btn btn-ja" onclick="handleVote('ja')">Ja! (Yes)</button>
                         <button class="btn btn-nein" onclick="handleVote('nein')">Nein (No)</button>
                     `;
                 } else {
-                    waitMsg.innerText = "Ballot cast. Awaiting results...";
+                    waitMsg.innerText = "Ballot cast. Waiting for the rest of parliament...";
                 }
             }
+            // 3. LEGISLATIVE SESSION (PRESIDENT)
             else if (localState.state === 'LEGISLATIVE_PRES' && amPres) {
                 waitMsg.style.display = 'none';
                 instCard.style.display = 'block';
-                instTitle.innerText = "LEGISLATIVE SESSION";
-                instBody.innerText = "Draw 3 Policies. Discard 1. Pass 2 to the Chancellor.";
+                instTitle.innerText = "PRESIDENTIAL SESSION";
+                instBody.innerText = "Draw 3 Policies. Discard 1. Pass 2 to the Chancellor in secret.";
                 localState.legislativeHand.forEach((card, i) => {
-                    controls.innerHTML += `<button class="btn ${card==='LIBERAL'?'btn-ja':'btn-nein'}" onclick="legislationDiscard(${i})">${card}</button>`;
+                    controls.innerHTML += `<button class="btn ${card==='LIBERAL'?'btn-ja':'btn-nein'}" onclick="legislationDiscard(${i})">Discard ${card}</button>`;
                 });
             }
+            // 4. LEGISLATIVE SESSION (CHANCELLOR)
             else if (localState.state === 'LEGISLATIVE_CHAN' && amChan) {
                 waitMsg.style.display = 'none';
                 instCard.style.display = 'block';
-                instTitle.innerText = "LEGISLATIVE SESSION";
-                instBody.innerText = "Receive 2 Policies. Discard 1. Enact the remaining Policy.";
+                instTitle.innerText = "CHANCELLOR'S DECISION";
+                instBody.innerText = "The President handed you 2 Policies. Discard 1. The remaining Policy will be ENACTED.";
                 localState.legislativeHand.forEach((card, i) => {
-                    controls.innerHTML += `<button class="btn ${card==='LIBERAL'?'btn-ja':'btn-nein'}" onclick="legislationDiscard(${i})">${card}</button>`;
+                    controls.innerHTML += `<button class="btn ${card==='LIBERAL'?'btn-ja':'btn-nein'}" onclick="legislationDiscard(${i})">Discard ${card}</button>`;
                 });
                 if (localState.fasPolicies === 5) {
                      controls.innerHTML += `<br><button class="btn btn-action" onclick="proposeVeto()">I WISH TO VETO</button>`;
                 }
             }
+            // 5. VETO
             else if (localState.state === 'VETO_CONSENT' && amPres) {
                 waitMsg.style.display = 'none';
                 instCard.style.display = 'block';
-                instTitle.innerText = "VETO PROPOSAL";
-                instBody.innerText = "The Chancellor wishes to veto this agenda. Do you consent?";
+                instTitle.innerText = "VETO PROPOSED";
+                instBody.innerText = "The Chancellor wishes to discard both policies. Do you consent to this paralysis?";
                 controls.innerHTML = `
                     <button class="btn btn-ja" onclick="answerVeto(true)">I AGREE (Discard All)</button>
                     <button class="btn btn-nein" onclick="answerVeto(false)">I DO NOT CONSENT</button>
                 `;
             }
+            // 6. EXECUTIVE ACTION
             else if (localState.state === 'EXECUTIVE_ACTION' && amPres) {
                 waitMsg.style.display = 'none';
                 instCard.style.display = 'block';
                 const act = localState.executiveAction;
                 instTitle.innerText = "PRESIDENTIAL POWER";
-                instBody.innerText = `You must use the power: ${act.toUpperCase()}`;
+                instBody.innerText = `The Fascist power has grown. You must use the power: ${act.toUpperCase()}`;
                 
                 if (act === 'Policy Peek') {
                     controls.innerHTML = `<button class="btn btn-action" onclick="peekPolicy()">Peek Top 3 Policies</button>`;
                 } else {
                     let actionVerb = "Select";
-                    if(act === 'Execution') actionVerb = "I FORMALLY EXECUTE";
+                    if(act === 'Execution') actionVerb = "EXECUTE";
+                    if(act === 'Investigate Loyalty') actionVerb = "INVESTIGATE";
                     
                     Object.values(localState.players).forEach(p => {
                         if (p.id !== myId && p.alive) { 
