@@ -223,41 +223,40 @@
 
         // --- SETUP ---
 
-        function createGame() {
-            isHost = true;
-            gameId = Math.floor(Math.random() * 9000 + 1000).toString();
-            
-            db.ref(gameId).set({
-                deck: createInitialDeck(), // Changed from shuffleDeck()
-    discard: [],
-                state: 'LOBBY', 
-                libPolicies: 0,
-                fasPolicies: 0,
-                electionTracker: 0,
-                players: {},
-                deck: shuffleDeck(),
-                discard: [],
-                president: null,
-                chancellor: null,
-                lastChancellor: null,
-                lastPresident: null,
-                votes: {},
-                legislativeHand: [],
-                executiveAction: null,
-                notification: "The year is 1932. Waiting for players..."
-            });
+function createGame() {
+    isHost = true;
+    gameId = Math.floor(Math.random() * 9000 + 1000).toString();
+    
+    // WE USE THE NEW FUNCTION HERE:
+    db.ref(gameId).set({
+        state: 'LOBBY', 
+        libPolicies: 0,
+        fasPolicies: 0,
+        electionTracker: 0,
+        players: {},
+        deck: createInitialDeck(), // <--- CHANGED FROM shuffleDeck()
+        discard: [],
+        president: null,
+        chancellor: null,
+        lastChancellor: null,
+        lastPresident: null,
+        votes: {},
+        legislativeHand: [],
+        executiveAction: null,
+        notification: "The year is 1932. Waiting for players..."
+    });
 
-            document.getElementById('setup-screen').classList.add('hidden');
-            document.getElementById('host-view').classList.remove('hidden');
-            document.getElementById('display-game-code').innerText = gameId;
+    document.getElementById('setup-screen').classList.add('hidden');
+    document.getElementById('host-view').classList.remove('hidden');
+    document.getElementById('display-game-code').innerText = gameId;
 
-            db.ref(gameId).on('value', snap => {
-                localState = snap.val();
-                if (localState) renderHost();
-            });
+    db.ref(gameId).on('value', snap => {
+        localState = snap.val();
+        if (localState) renderHost();
+    });
 
-            setInterval(hostGameLoop, 1000);
-        }
+    setInterval(hostGameLoop, 1000);
+}
 
         function joinGame() {
             const name = document.getElementById('playerName').value;
@@ -741,8 +740,9 @@ function legislationDiscard(index) {
         }
 
         // --- UTILS ---
+
+// 1. Generic Shuffle Function (The logic)
 function shuffle(array) {
-    // Standard Fisher-Yates shuffle to randomize the deck
     let currentIndex = array.length, randomIndex;
     while (currentIndex != 0) {
         randomIndex = Math.floor(Math.random() * currentIndex);
@@ -751,59 +751,57 @@ function shuffle(array) {
     }
     return array;
 }
-function shuffle(array) {
-    return array.sort(() => Math.random() - 0.5);
-}
 
-// Helper to create the initial clean deck only once at game start
+// 2. Initial Deck Creator (The factory)
 function createInitialDeck() {
     return shuffle(Array(6).fill('LIBERAL').concat(Array(11).fill('FASCIST')));
 }
-        function getRole(id) { return localState.players[id] ? localState.players[id].role : null; }
-        function getName(id) { return localState.players[id] ? localState.players[id].name : 'Unknown'; }
-        
-        function renderTrack(id, max, curr, cls, powers) {
-            const div = document.getElementById(id);
-            div.innerHTML = '';
-            for(let i=0; i<max; i++) {
-                let d = document.createElement('div');
-                d.className = `policy-slot ${i<curr ? cls : ''}`;
-                d.innerText = i+1;
-                if (powers && powers[i]) {
-                    let pSpan = document.createElement('span');
-                    pSpan.className = 'power-icon';
-                    pSpan.innerText = powers[i];
-                    d.appendChild(pSpan);
-                }
-                div.appendChild(d);
-            }
-        }
-        
-        function showNotification(msg) {
-            const el = document.getElementById('notification-area');
-            el.innerText = msg;
-            el.style.display = 'block';
-            setTimeout(() => el.style.display = 'none', 5000);
-        }
 
-        function endGame(msg) {
-            db.ref(gameId).update({ state: 'GAMEOVER', notification: msg });
-            showNotification(msg);
-            alert(msg);
-        }
+function getRole(id) { return localState.players[id] ? localState.players[id].role : null; }
+function getName(id) { return localState.players[id] ? localState.players[id].name : 'Unknown'; }
 
-        function toggleRole() {
-            const el = document.getElementById('my-role-card');
-            el.style.display = (el.style.display === 'block') ? 'none' : 'block';
+function renderTrack(id, max, curr, cls, powers) {
+    const div = document.getElementById(id);
+    div.innerHTML = '';
+    for(let i=0; i<max; i++) {
+        let d = document.createElement('div');
+        d.className = `policy-slot ${i<curr ? cls : ''}`;
+        d.innerText = i+1;
+        if (powers && powers[i]) {
+            let pSpan = document.createElement('span');
+            pSpan.className = 'power-icon';
+            pSpan.innerText = powers[i];
+            d.appendChild(pSpan);
         }
+        div.appendChild(d);
+    }
+}
 
-        function getNextPresidentIndex() {
-             const pOrder = localState.presidentOrder;
-             const currIdx = pOrder.indexOf(localState.president);
-             let nextIdx = (currIdx + 1) % pOrder.length;
-             while (!localState.players[pOrder[nextIdx]].alive) { nextIdx = (nextIdx + 1) % pOrder.length; }
-             return localState.players[pOrder[nextIdx]].id;
-        }
+function showNotification(msg) {
+    const el = document.getElementById('notification-area');
+    el.innerText = msg;
+    el.style.display = 'block';
+    setTimeout(() => el.style.display = 'none', 5000);
+}
+
+function endGame(msg) {
+    db.ref(gameId).update({ state: 'GAMEOVER', notification: msg });
+    showNotification(msg);
+    alert(msg);
+}
+
+function toggleRole() {
+    const el = document.getElementById('my-role-card');
+    el.style.display = (el.style.display === 'block') ? 'none' : 'block';
+}
+
+function getNextPresidentIndex() {
+     const pOrder = localState.presidentOrder;
+     const currIdx = pOrder.indexOf(localState.president);
+     let nextIdx = (currIdx + 1) % pOrder.length;
+     while (!localState.players[pOrder[nextIdx]].alive) { nextIdx = (nextIdx + 1) % pOrder.length; }
+     return localState.players[pOrder[nextIdx]].id;
+}
     </script>
 </body>
 </html>
