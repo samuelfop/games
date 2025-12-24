@@ -62,6 +62,17 @@
 
     <!-- 3. React Application Logic -->
     <script type="text/babel">
+        // --- CONFIGURATION ---
+        // TODO: PASTE YOUR FIREBASE CONFIGURATION HERE FOR GITHUB HOSTING
+        const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyCefNuz6CpZ9mld2xUwazWSS3Qq1TAiVuI",
+  authDomain: "werewolf-6a2c1.firebaseapp.com",
+  projectId: "werewolf-6a2c1",
+  storageBucket: "werewolf-6a2c1.firebasestorage.app",
+  messagingSenderId: "250397412052",
+  appId: "1:250397412052:web:993484717753305f0e8941"
+        };
+
         // --- ICONS ---
         const Icons = {
             Moon: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>,
@@ -72,7 +83,8 @@
             Heart: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>,
             Play: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg>,
             Crown: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14"/></svg>,
-            Loader: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+            Loader: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>,
+            Settings: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
         };
 
         const { useState, useEffect } = React;
@@ -107,32 +119,39 @@
           const [roomData, setRoomData] = useState(null);
           const [error, setError] = useState('');
           const [loading, setLoading] = useState(false);
-
-          // Get Env Config safely
-          const appId = typeof __app_id !== 'undefined' ? __app_id : 'werewolf-party-game';
-          const firebaseConfigRaw = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
-
-          // Init Firebase
           const [services, setServices] = useState(null);
 
+          // Get Env Config safely for Preview Mode, OR use Hardcoded Config for GitHub
+          const envConfig = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
+          
           useEffect(() => {
-            if (!firebaseConfigRaw) {
-              setError("Configuration Error: Firebase config not found. (If running locally, this is expected).");
+            // Priority: 1. Hardcoded Config (for GitHub) 2. Env Config (for Preview)
+            let configToUse = null;
+
+            if (FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.apiKey !== "YOUR_API_KEY_HERE") {
+                configToUse = FIREBASE_CONFIG;
+            } else if (envConfig) {
+                try { configToUse = JSON.parse(envConfig); } catch (e) {}
+            }
+
+            if (!configToUse) {
+              setError("Configuration Missing: Please edit the index.html file and add your Firebase Config keys at the top of the script.");
               return;
             }
             
             try {
-              const config = JSON.parse(firebaseConfigRaw);
-              const app = fb.initializeApp(config);
+              const app = fb.initializeApp(configToUse);
               const auth = fb.getAuth(app);
               const db = fb.getFirestore(app);
               
               setServices({ auth, db });
 
               const initAuth = async () => {
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                // If using env config with token (Preview), use custom token
+                if (envConfig && configToUse === JSON.parse(envConfig) && typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                   await fb.signInWithCustomToken(auth, __initial_auth_token);
                 } else {
+                  // If hardcoded (GitHub), use anonymous
                   await fb.signInAnonymously(auth);
                 }
               };
@@ -149,6 +168,10 @@
           useEffect(() => {
             if (!user || !roomCode || !services) return;
             const { db } = services;
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'werewolf-party-game';
+            
+            // NOTE: Using a fixed collection for local usage to ensure path consistency
+            // When running locally, appId might be default, which is fine.
             const roomRef = fb.doc(db, 'artifacts', appId, 'public', 'data', `rooms/${roomCode}`);
             
             const unsubscribe = fb.onSnapshot(roomRef, (snapshot) => {
@@ -178,6 +201,7 @@
             setLoading(true);
             const code = generateRoomCode();
             const { db } = services;
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'werewolf-party-game';
             const roomRef = fb.doc(db, 'artifacts', appId, 'public', 'data', `rooms/${code}`);
             
             await fb.setDoc(roomRef, {
@@ -291,6 +315,7 @@
 
           const updateRoom = async (data) => {
             const { db } = services;
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'werewolf-party-game';
             const roomRef = fb.doc(db, 'artifacts', appId, 'public', 'data', `rooms/${roomCode}`);
             await fb.updateDoc(roomRef, data);
           };
@@ -374,6 +399,7 @@
             setLoading(true);
             const codeUpper = roomCode.toUpperCase();
             const { db } = services;
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'werewolf-party-game';
             const roomRef = fb.doc(db, 'artifacts', appId, 'public', 'data', `rooms/${codeUpper}`);
             const snap = await fb.getDoc(roomRef);
 
