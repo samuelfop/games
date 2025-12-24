@@ -200,19 +200,31 @@
 
     <script>
         // --- !!! PASTE YOUR IMAGE LINKS HERE !!! ---
-        // If you don't have links yet, these placeholders will show text instead.
-        const ASSETS = {
-            logo: ".\logo.png", // Screenshot from Page 1
-            lib_policy: ".\liberal.png", // Screenshot from Page 4
-            fas_policy: ".\fascist.png", // Screenshot from Page 2
-            lib_board: "https://placehold.co/800x250/333/65aadd?text=LIBERAL+BOARD+IMAGE", // Screenshot Page 10
-            fas_board: "https://placehold.co/800x250/333/d64d4d?text=FASCIST+BOARD+IMAGE" // Screenshot Page 12
-        };
+const ASSETS = {
+    logo: ".\logo.png",
+    lib_policy: ".\liberal.png",
+    fas_policy: ".\fascist.png",
+    lib_board: ".\libboard.",
+    
+    // CHANGE: Split the fascist board into 3 different images
+    fas_board_5_6: ".\fas56.png", // Powers: Peek, Kill, Kill
+    fas_board_7_8: ".\fas78.png", // Powers: Investigate, Special Election, Kill, Kill
+    fas_board_9_10: ".\fas910.png" // Powers: Investigate, Investigate, Special Election, Kill, Kill
+};
 
         // --- APPLY ASSETS ---
         document.getElementById('game-logo').src = ASSETS.logo;
         document.getElementById('lib-board-bg').style.backgroundImage = `url('${ASSETS.lib_board}')`;
-        document.getElementById('fas-board-bg').style.backgroundImage = `url('${ASSETS.fas_board}')`;
+        // 1. Get player count
+const pCount = Object.keys(localState.players || {}).length || 5;
+
+// 2. Determine which board image to use
+let fasImage = ASSETS.fas_board_5_6; // Default
+if (pCount >= 7 && pCount <= 8) fasImage = ASSETS.fas_board_7_8;
+if (pCount >= 9) fasImage = ASSETS.fas_board_9_10;
+
+// 3. Apply the correct image
+document.getElementById('fas-board-bg').style.backgroundImage = `url('${fasImage}')`;
 
         // --- FIREBASE CONFIG ---
         const firebaseConfig = {
