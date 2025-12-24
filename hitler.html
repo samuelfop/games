@@ -228,6 +228,8 @@
             gameId = Math.floor(Math.random() * 9000 + 1000).toString();
             
             db.ref(gameId).set({
+                deck: createInitialDeck(), // Changed from shuffleDeck()
+    discard: [],
                 state: 'LOBBY', 
                 libPolicies: 0,
                 fasPolicies: 0,
@@ -325,88 +327,135 @@
             }
         }
 
+
+
         function evaluateVote(votes) {
-            let jas = Object.values(votes).filter(v => v === 'ja').length;
-            let neins = Object.values(votes).filter(v => v === 'nein').length;
+    let jas = Object.values(votes).filter(v => v === 'ja').length;
+    let neins = Object.values(votes).filter(v => v === 'nein').length;
 
-            if (jas > neins) { 
-                // Vote Passes
-                if (localState.fasPolicies >= 3 && getRole(localState.chancellor) === 'HITLER') {
-                    return endGame("FASCIST VICTORY: Hitler was elected Chancellor!");
-                }
+    if (jas > neins) { 
+        // --- VOTE PASSES ---
 
-                // Draw 3, Discard 1, Pass 2
-                let deck = localState.deck || [];
-                if (deck.length < 3) deck = shuffleDeck();
-                
-                db.ref(gameId).update({
-                    state: 'LEGISLATIVE_PRES',
-                    legislativeHand: deck.slice(0, 3),
-                    deck: deck.slice(3),
-                    votes: {},
-                    electionTracker: 0,
-                    notification: "The Government is elected. Legislative Session begins."
-                });
-            } else { 
-                // Vote Fails
-                advanceTurn(true); 
-            }
+        // 1. Check Win Condition: Hitler elected Chancellor after 3 Fascist policies 
+        if (localState.fasPolicies >= 3 && getRole(localState.chancellor) === 'HITLER') {
+            return endGame("FASCIST VICTORY: Hitler was elected Chancellor!");
         }
+
+        // 2. Deck Management: Reshuffle if fewer than 3 cards remain 
+        let deck = localState.deck || [];
+        let discard = localState.discard || [];
+
+        if (deck.length < 3) {
+            // Combine remaining deck and discards, then shuffle
+            deck = shuffle([...deck, ...discard]);
+            discard = []; // Empty the discard pile in the database
+        }
+        
+        // 3. Draw 3 Cards [cite: 125]
+        const hand = deck.slice(0, 3);
+        const remainingDeck = deck.slice(3);
+
+        // 4. Update Database
+        db.ref(gameId).update({
+            state: 'LEGISLATIVE_PRES',
+            legislativeHand: hand,
+            deck: remainingDeck,
+            discard: discard, 
+            votes: {},
+            electionTracker: 0, // Reset tracker on successful election [cite: 116]
+            notification: "The Government is elected. Legislative Session begins."
+        });
+
+    } else { 
+        // --- VOTE FAILS ---
+        advanceTurn(true); 
+    }
+}
+
+
 
         function advanceTurn(voteFailed = false) {
-            let updates = {};
-            
-            if (voteFailed) {
-                // Election Tracker
-                let tracker = (localState.electionTracker || 0) + 1;
-                updates.electionTracker = tracker;
-                
-                if (tracker >= 3) {
-                    // Chaos
-                    const topCard = localState.deck[0];
-                    updates.deck = localState.deck.slice(1);
-                    updates.electionTracker = 0;
-                    updates.libPolicies = localState.libPolicies + (topCard === 'LIBERAL' ? 1 : 0);
-                    updates.fasPolicies = localState.fasPolicies + (topCard === 'FASCIST' ? 1 : 0);
-                    updates.lastChancellor = null; 
-                    updates.lastPresident = null;
-                    updates.notification = `The country is thrown into CHAOS! A ${topCard} Policy is enacted by the frustrated populace.`;
-                    
-                    if (updates.libPolicies >= 5) return endGame("LIBERAL VICTORY: 5 Policies Enacted.");
-                    if (updates.fasPolicies >= 6) return endGame("FASCIST VICTORY: 6 Policies Enacted.");
-                } else {
-                    updates.notification = "The Vote Fails. The Election Tracker advances.";
-                }
-            } else {
-                updates.lastPresident = localState.president;
-                updates.lastChancellor = localState.chancellor;
+    let updates = {};
+    
+    if (voteFailed) {
+        // --- ELECTION TRACKER LOGIC ---
+        let tracker = (localState.electionTracker || 0) + 1;
+        updates.electionTracker = tracker; // Advance tracker [cite: 110]
+        
+        if (tracker >= 3) {
+            // --- CHAOS (3 Failed Votes) --- [cite: 111]
+            let deck = localState.deck || [];
+            let discard = localState.discard || [];
+
+            // Safety Check: If deck is empty during chaos, we must reshuffle first 
+            if (deck.length < 1) {
+                deck = shuffle([...discard]);
+                discard = [];
             }
 
-            // Rotate President 
-            let nextPres;
-            if (localState.specialElectionReturn) {
-                nextPres = localState.specialElectionReturn;
-                updates.specialElectionReturn = null;
-            } else {
-                const pOrder = localState.presidentOrder;
-                const currIdx = pOrder.indexOf(localState.president);
-                let nextIdx = (currIdx + 1) % pOrder.length;
-                let safety = 0;
-                while (!localState.players[pOrder[nextIdx]].alive && safety < 20) {
-                    nextIdx = (nextIdx + 1) % pOrder.length;
-                    safety++;
-                }
-                nextPres = pOrder[nextIdx];
-            }
-
-            updates.state = 'NOMINATION';
-            updates.president = nextPres;
-            updates.chancellor = null;
-            updates.votes = {};
-            updates.legislativeHand = [];
+            const topCard = deck[0]; // Reveal top policy [cite: 112]
             
-            db.ref(gameId).update(updates);
+            updates.deck = deck.slice(1);
+            updates.discard = discard;
+            updates.electionTracker = 0; // Reset tracker 
+            
+            // Enact the policy
+            const isLib = (topCard === 'LIBERAL');
+            updates.libPolicies = localState.libPolicies + (isLib ? 1 : 0);
+            updates.fasPolicies = localState.fasPolicies + (!isLib ? 1 : 0);
+            
+            // In Chaos, all players become eligible (reset term limits) 
+            updates.lastChancellor = null; 
+            updates.lastPresident = null;
+            
+            updates.notification = `CHAOS! The frustrated populace enacts a ${topCard} Policy.`;
+
+            // Check Win Conditions immediately [cite: 29, 32]
+            if (updates.libPolicies >= 5) return endGame("LIBERAL VICTORY: 5 Policies Enacted.");
+            if (updates.fasPolicies >= 6) return endGame("FASCIST VICTORY: 6 Policies Enacted.");
+            
+            // Note: Presidential Powers are IGNORED during chaos 
+        } else {
+            updates.notification = "The Vote Fails. The Election Tracker advances.";
         }
+    } else {
+        // --- SUCCESSFUL TURN ---
+        // If the turn advanced normally (policy enacted), update Term Limits [cite: 92]
+        updates.lastPresident = localState.president;
+        updates.lastChancellor = localState.chancellor;
+    }
+
+    // --- ROTATE PRESIDENT ---
+    let nextPres;
+    
+    // Check if we are returning from a Special Election [cite: 157]
+    if (localState.specialElectionReturn) {
+        nextPres = localState.specialElectionReturn;
+        updates.specialElectionReturn = null;
+    } else {
+        // Standard Clockwise Rotation [cite: 87]
+        const pOrder = localState.presidentOrder;
+        const currIdx = pOrder.indexOf(localState.president);
+        let nextIdx = (currIdx + 1) % pOrder.length;
+        
+        // Skip dead players [cite: 167]
+        let safety = 0;
+        while (!localState.players[pOrder[nextIdx]].alive && safety < 20) {
+            nextIdx = (nextIdx + 1) % pOrder.length;
+            safety++;
+        }
+        nextPres = pOrder[nextIdx];
+    }
+
+    // Prepare for next round
+    updates.state = 'NOMINATION';
+    updates.president = nextPres;
+    updates.chancellor = null;
+    updates.votes = {};
+    updates.legislativeHand = [];
+    
+    db.ref(gameId).update(updates);
+}
 
         function enactPolicy(policy) {
             let updates = { legislativeHand: [] };
@@ -455,19 +504,36 @@
             });
         }
 
-        function legislationDiscard(index) {
-            let hand = [...localState.legislativeHand];
-            hand.splice(index, 1);
-            
-            if (localState.state === 'LEGISLATIVE_PRES') {
-                db.ref(gameId).update({ 
-                    state: 'LEGISLATIVE_CHAN', legislativeHand: hand,
-                    notification: "The Chancellor is now enacting a policy."
-                });
-            } else {
-                enactPolicy(hand[0]);
-            }
-        }
+
+
+
+
+function legislationDiscard(index) {
+    let hand = [...localState.legislativeHand];
+    // Remove card from hand and save it
+    const discardedCard = hand.splice(index, 1)[0]; 
+    
+    // Add to discard pile in DB
+    const currentDiscard = localState.discard || [];
+    const newDiscard = [...currentDiscard, discardedCard];
+
+    if (localState.state === 'LEGISLATIVE_PRES') {
+        // President Discarded -> Pass 2 cards to Chancellor [cite: 126]
+        db.ref(gameId).update({ 
+            state: 'LEGISLATIVE_CHAN', 
+            legislativeHand: hand,
+            discard: newDiscard, // SAVE DISCARD
+            notification: "The Chancellor is now enacting a policy."
+        });
+    } else {
+        // Chancellor Discarded -> Enact the remaining one [cite: 126]
+        db.ref(gameId).update({ 
+            discard: newDiscard // SAVE DISCARD
+        }).then(() => {
+            enactPolicy(hand[0]);
+        });
+    }
+}
 
         function proposeVeto() { 
             db.ref(gameId).update({ 
@@ -675,7 +741,24 @@
         }
 
         // --- UTILS ---
-        function shuffleDeck() { return Array(6).fill('LIBERAL').concat(Array(11).fill('FASCIST')).sort(() => Math.random() - 0.5); }
+function shuffle(array) {
+    // Standard Fisher-Yates shuffle to randomize the deck
+    let currentIndex = array.length, randomIndex;
+    while (currentIndex != 0) {
+        randomIndex = Math.floor(Math.random() * currentIndex);
+        currentIndex--;
+        [array[currentIndex], array[randomIndex]] = [array[randomIndex], array[currentIndex]];
+    }
+    return array;
+}
+function shuffle(array) {
+    return array.sort(() => Math.random() - 0.5);
+}
+
+// Helper to create the initial clean deck only once at game start
+function createInitialDeck() {
+    return shuffle(Array(6).fill('LIBERAL').concat(Array(11).fill('FASCIST')));
+}
         function getRole(id) { return localState.players[id] ? localState.players[id].role : null; }
         function getName(id) { return localState.players[id] ? localState.players[id].name : 'Unknown'; }
         
