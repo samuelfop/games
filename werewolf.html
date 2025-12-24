@@ -200,11 +200,14 @@
           // --- HOST LOGIC ---
 
           const createGame = async () => {
+            console.log("Host button clicked");
             if (!services) {
+                console.error("No services available");
                 alert("Firebase services not ready. Check your configuration.");
                 return;
             }
             if (!user) {
+                console.error("No user logged in");
                 alert("Not logged in yet. Please wait a moment or check your internet connection.");
                 return;
             }
@@ -212,6 +215,7 @@
             setLoading(true);
             try {
                 const code = generateRoomCode();
+                console.log("Generating room:", code);
                 const { db } = services;
                 const appId = typeof __app_id !== 'undefined' ? __app_id : 'werewolf-party-game';
                 const roomRef = fb.doc(db, 'artifacts', appId, 'public', 'data', `rooms/${code}`);
@@ -229,10 +233,11 @@
                   winner: null
                 });
     
+                console.log("Room created successfully");
                 setRoomCode(code);
                 setMode('host');
             } catch (err) {
-                console.error(err);
+                console.error("Error creating game:", err);
                 alert("Error creating game: " + err.message + "\n\nTip: Ensure your Firestore Database rules are set to 'Test Mode'.");
             } finally {
                 setLoading(false);
@@ -504,9 +509,13 @@
                   {error && <div className="bg-red-900/50 text-red-200 p-3 rounded-lg mb-6 text-sm text-center">{error}</div>}
 
                   <div className="space-y-6">
-                    <button onClick={createGame} disabled={loading} className="w-full py-4 bg-red-600 hover:bg-red-700 rounded-xl font-bold text-lg flex items-center justify-center gap-2">
+                    <button 
+                        onClick={createGame} 
+                        disabled={loading || !user || !services}
+                        className={`w-full py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-2 ${loading || !user || !services ? 'bg-slate-700 text-slate-500 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700'}`}
+                    >
                       <Icons.Crown className="w-5 h-5" />
-                      {loading ? 'Creating...' : 'Host New Game'}
+                      {loading ? 'Creating...' : (!user || !services) ? 'Connecting...' : 'Host New Game'}
                     </button>
                     
                     <div className="relative">
@@ -517,8 +526,12 @@
                     <div className="space-y-3">
                       <input type="text" placeholder="Your Name" className="w-full bg-slate-900 border border-slate-600 p-4 rounded-xl text-center focus:outline-none focus:border-red-500 transition-colors" value={playerName} onChange={e => setPlayerName(e.target.value)} />
                       <input type="text" placeholder="Room Code (4 Letters)" className="w-full bg-slate-900 border border-slate-600 p-4 rounded-xl text-center uppercase tracking-widest font-mono text-xl focus:outline-none focus:border-red-500 transition-colors" maxLength={4} value={roomCode} onChange={e => setRoomCode(e.target.value.toUpperCase())} />
-                      <button onClick={joinGame} disabled={loading} className="w-full py-4 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-lg">
-                        {loading ? 'Joining...' : 'Join Game'}
+                      <button 
+                        onClick={joinGame} 
+                        disabled={loading || !user || !services}
+                        className={`w-full py-4 rounded-xl font-bold text-lg flex items-center justify-center ${loading || !user || !services ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-slate-700 hover:bg-slate-600'}`}
+                      >
+                        {loading ? 'Joining...' : (!user || !services) ? 'Connecting...' : 'Join Game'}
                       </button>
                     </div>
                   </div>
